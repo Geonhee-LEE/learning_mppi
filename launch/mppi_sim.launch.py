@@ -132,7 +132,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'trajectory_type',
             default_value='circle',
-            description='Reference trajectory type (circle, figure8, sine, lemniscate, straight)'
+            description='Reference trajectory type (circle, figure8, sine, slalom, lemniscate, straight)'
         ),
 
         # Nodes

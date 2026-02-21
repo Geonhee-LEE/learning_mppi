@@ -39,7 +39,7 @@ def main():
         "--trajectory",
         type=str,
         default="circle",
-        choices=["circle", "figure8", "sine", "straight"],
+        choices=["circle", "figure8", "sine", "slalom", "straight"],
         help="Reference trajectory type",
     )
     parser.add_argument(

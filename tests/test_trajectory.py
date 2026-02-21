@@ -12,6 +12,7 @@ from mppi_controller.utils.trajectory import (
     circle_trajectory,
     figure_eight_trajectory,
     sine_wave_trajectory,
+    slalom_trajectory,
     straight_line_trajectory,
     generate_reference_trajectory,
     create_trajectory_function,
@@ -109,7 +110,7 @@ def test_create_trajectory_function():
     print("Test: create_trajectory_function for all types")
     print("=" * 60)
 
-    for ttype in ["circle", "figure8", "sine", "straight"]:
+    for ttype in ["circle", "figure8", "sine", "slalom", "straight"]:
         fn = create_trajectory_function(ttype)
         state = fn(1.0)
         assert state.shape == (3,), f"{ttype}: shape={state.shape}"
@@ -128,6 +129,58 @@ def test_unknown_trajectory_type():
         assert False, "Should have raised ValueError"
     except ValueError as e:
         print(f"  caught: {e}")
+    print("PASS")
+
+
+def test_slalom_shape():
+    print("\n" + "=" * 60)
+    print("Test: slalom_trajectory returns (3,) with valid heading")
+    print("=" * 60)
+
+    for t in [0.0, 5.0, 10.0, 20.0]:
+        state = slalom_trajectory(t)
+        assert state.shape == (3,), f"shape at t={t}: {state.shape}"
+        assert not np.any(np.isnan(state)), f"NaN at t={t}: {state}"
+        # heading should be within [-pi, pi]
+        assert -np.pi <= state[2] <= np.pi, f"heading out of range: {state[2]}"
+
+    # x should advance with velocity
+    s0 = slalom_trajectory(0.0)
+    s10 = slalom_trajectory(10.0)
+    assert s10[0] > s0[0], "x should increase with time"
+    # y should oscillate (not always 0)
+    y_vals = [slalom_trajectory(t)[1] for t in np.linspace(0, 20, 100)]
+    assert max(y_vals) > 0.5, f"y should have positive excursion: max={max(y_vals)}"
+    assert min(y_vals) < -0.5, f"y should have negative excursion: min={min(y_vals)}"
+    print("PASS")
+
+
+def test_slalom_chirp():
+    print("\n" + "=" * 60)
+    print("Test: slalom chirp — frequency increases over time")
+    print("=" * 60)
+
+    # Measure zero-crossing intervals: later intervals should be shorter
+    y_vals = []
+    times = np.linspace(0, 25, 5000)
+    for t in times:
+        y_vals.append(slalom_trajectory(t)[1])
+    y_vals = np.array(y_vals)
+
+    # Find zero crossings
+    crossings = []
+    for i in range(len(y_vals) - 1):
+        if y_vals[i] * y_vals[i + 1] < 0:
+            crossings.append(times[i])
+
+    assert len(crossings) >= 6, f"Need at least 6 zero crossings, got {len(crossings)}"
+
+    # Compare early vs late half-periods
+    early_interval = crossings[1] - crossings[0]
+    late_interval = crossings[-1] - crossings[-2]
+    assert late_interval < early_interval, \
+        f"Late interval ({late_interval:.3f}) should be shorter than early ({early_interval:.3f})"
+    print(f"  Early half-period: {early_interval:.3f}s, Late: {late_interval:.3f}s")
     print("PASS")
 
 
@@ -167,6 +220,8 @@ if __name__ == "__main__":
         test_figure8_shape,
         test_sine_shape,
         test_straight_line,
+        test_slalom_shape,
+        test_slalom_chirp,
         test_generate_reference_shape,
         test_create_trajectory_function,
         test_unknown_trajectory_type,

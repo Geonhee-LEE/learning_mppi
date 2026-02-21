@@ -76,7 +76,7 @@ class TrajectoryPublisher(Node):
 
     def _declare_parameters(self):
         """Declare ROS2 parameters"""
-        self.declare_parameter('trajectory_type', 'circle')  # circle, figure8, sine, lemniscate, straight
+        self.declare_parameter('trajectory_type', 'circle')  # circle, figure8, sine, slalom, lemniscate, straight
         self.declare_parameter('frame_id', 'map')
         self.declare_parameter('publish_rate', 10.0)  # Hz
         self.declare_parameter('horizon', 30)  # N
@@ -94,6 +94,7 @@ class TrajectoryPublisher(Node):
             'circle': self._circle_trajectory,
             'figure8': self._figure8_trajectory,
             'sine': self._sine_trajectory,
+            'slalom': self._slalom_trajectory,
             'lemniscate': self._lemniscate_trajectory,
             'straight': self._straight_trajectory,
         }
@@ -229,6 +230,37 @@ class TrajectoryPublisher(Node):
             dx = -self.radius * omega * (np.sin(angle) + np.sin(angle)**3) / denom**2
             dy = self.radius * omega * (np.cos(2*angle) - np.sin(angle)**2) / denom**2
             poses[i, 2] = np.arctan2(dy, dx)
+
+        return poses
+
+    def _slalom_trajectory(self, t: float, N: int, dt: float) -> np.ndarray:
+        """
+        Slalom trajectory (chirp sine — increasing frequency)
+
+        Returns:
+            poses: (N+1, 3) - [x, y, theta]
+        """
+        poses = np.zeros((N + 1, 3))
+        chirp_rate = 0.008
+        f0 = self.velocity / 8.0  # base_wavelength = 8.0
+
+        for i in range(N + 1):
+            t_i = t + i * dt
+            x = self.velocity * t_i
+            phase = 2 * np.pi * (f0 * t_i + 0.5 * chirp_rate * t_i ** 2)
+            y = self.amplitude * np.sin(phase)
+
+            # Heading via numerical differentiation
+            dt_num = 0.001
+            t_next = t_i + dt_num
+            x_next = self.velocity * t_next
+            phase_next = 2 * np.pi * (f0 * t_next + 0.5 * chirp_rate * t_next ** 2)
+            y_next = self.amplitude * np.sin(phase_next)
+            heading = np.arctan2(y_next - y, x_next - x)
+
+            poses[i, 0] = x
+            poses[i, 1] = y
+            poses[i, 2] = heading
 
         return poses
 

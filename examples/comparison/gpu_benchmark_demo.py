@@ -251,7 +251,7 @@ def main():
     parser = argparse.ArgumentParser(description="CPU vs GPU MPPI Benchmark")
     parser.add_argument(
         "--trajectory", type=str, default="circle",
-        choices=["circle", "figure8", "sine", "straight"],
+        choices=["circle", "figure8", "sine", "slalom", "straight"],
     )
     parser.add_argument("--duration", type=float, default=10.0)
     parser.add_argument("--no-plot", action="store_true")

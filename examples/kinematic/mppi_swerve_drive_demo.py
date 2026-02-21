@@ -33,7 +33,7 @@ def main():
     parser = argparse.ArgumentParser(description="MPPI Swerve Drive Demo")
     parser.add_argument(
         "--trajectory", type=str, default="circle",
-        choices=["circle", "figure8", "sine", "straight"],
+        choices=["circle", "figure8", "sine", "slalom", "straight"],
     )
     parser.add_argument("--duration", type=float, default=20.0)
     parser.add_argument("--live", action="store_true")
