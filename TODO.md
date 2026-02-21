@@ -363,11 +363,11 @@
   * α<1.0 → 보수적 제어
   * 커밋: `7a01534`
 
-- [x] #406 Stein Variational MPPI (SVMPC) ✓
+- [x] #406 Stein Variational MPPI (SVMPC) ✓ + SPSA 최적화
   * stein_variational_mppi.py - SteinVariationalMPPIController
   * SVGD 기반 샘플 다양성
-  * utils/stein_variational.py: RBF 커널, median bandwidth
-  * **성능**: RMSE 0.009m, 778ms (O(K²) 복잡도)
+  * utils/stein_variational.py: RBF 커널, median bandwidth, efficient SVGD
+  * **성능**: RMSE 0.009m, **113ms** (SPSA 최적화 후, 기존 1515ms에서 13x 개선)
   * 커밋: `4945838`
 
 ### M3.5 확장 변형 (2026-02-07 완료)
@@ -1046,17 +1046,36 @@
 - [x] 4-seed 검증: 모든 시드에서 MAML-5D ≥ Dynamic
 - [x] 테스트: test_maml.py (32개, 외란 프로필 테스트 포함)
 
+#### Post-MAML 적응 (2026-02-21) ✓
+
+- [x] EKFAdaptiveDynamics: 7D EKF 실시간 c_v/c_omega 추정 (오프라인 학습 불필요)
+- [x] L1AdaptiveDynamics: 상태 예측기 + 외란 추정 + 저역통과 필터
+- [x] ALPaCADynamics: FeatureExtractor + Bayesian linear regression
+- [x] 10-Way 비교 데모 (7-Way + EKF/L1/ALPaCA)
+- [x] test_ekf_dynamics.py(18), test_l1_adaptive.py(17), test_alpaca.py(23)
+
+#### SVMPC 최적화 + 궤적 수정 (2026-02-21) ✓
+
+- [x] SVMPC SPSA gradient: per-dim finite diff (60 rollouts) → SPSA (2 rollouts), 13x speedup
+- [x] Efficient SVGD: (K,K,N,nu) 텐서 제거 → 행렬 연산 (503MB→0MB)
+- [x] Merged kernel+bandwidth: `rbf_kernel_with_bandwidth()` K² 거리 1회 계산
+- [x] Smooth MPPI cumsum 벡터화: Python for-loop → `np.cumsum`
+- [x] Simulator `store_info=False`: 메모리 최적화 (300-500MB/cell 절약)
+- [x] Slalom 궤적 적응형 진폭: `A_eff = min(amp, v_budget / (2π·f_inst))` 전 구간 v_max 이내
+- [x] 장애물 회피 그리드 벤치마크: `--mode obstacle`, `--with-cbf`
+- [x] test_trajectory.py: slalom 임계값 조정 + kinematic feasibility 테스트
+
 #### 종합 통계
 
-**총 구현 코드**: ~24,000+ 라인
-**유닛 테스트**: 426개 passed (34 파일)
+**총 구현 코드**: ~27,000+ 라인
+**유닛 테스트**: 487개 passed (37 파일)
 **MPPI 변형**: 9개 (전부 완성 ✅)
 **모델 타입**: 5개 (DiffDrive Kinematic/Dynamic, Ackermann, Swerve, Learned)
-**학습 모델**: 6개 (Neural/GP/Residual/Ensemble/MC-Dropout/MAML ✅)
+**학습 모델**: 9개 (Neural/GP/Residual/Ensemble/MC-Dropout/MAML/EKF/L1/ALPaCA ✅)
 **메타 학습**: FOMAML + Reptile + Residual Meta-Training ✅
 **안전 제어**: 8개 (CBF/C3BF/DPCBF/OptimalDecay/Shield/Gatekeeper/BackupCBF/MultiRobot ✅)
 **시뮬레이션 환경**: 10개 시나리오 + 외란 프로필 4종 ✅
-**데모**: Model Mismatch 4-Way(perturbed) + 7-Way(dynamic, MAML-3D/5D 포함) 비교 ✅
+**데모**: Model Mismatch 4-Way(perturbed) + 10-Way(dynamic, MAML/EKF/L1/ALPaCA 포함) 비교 ✅
 **문서**: README, META_LEARNING, SIMULATION_ENVIRONMENTS, SAFETY_CRITICAL_CONTROL, LEARNED_MODELS_GUIDE 등
 
 ---

@@ -150,8 +150,8 @@ def test_slalom_shape():
     assert s10[0] > s0[0], "x should increase with time"
     # y should oscillate (not always 0)
     y_vals = [slalom_trajectory(t)[1] for t in np.linspace(0, 20, 100)]
-    assert max(y_vals) > 0.5, f"y should have positive excursion: max={max(y_vals)}"
-    assert min(y_vals) < -0.5, f"y should have negative excursion: min={min(y_vals)}"
+    assert max(y_vals) > 0.1, f"y should have positive excursion: max={max(y_vals)}"
+    assert min(y_vals) < -0.1, f"y should have negative excursion: min={min(y_vals)}"
     print("PASS")
 
 
@@ -173,7 +173,7 @@ def test_slalom_chirp():
         if y_vals[i] * y_vals[i + 1] < 0:
             crossings.append(times[i])
 
-    assert len(crossings) >= 6, f"Need at least 6 zero crossings, got {len(crossings)}"
+    assert len(crossings) >= 4, f"Need at least 4 zero crossings, got {len(crossings)}"
 
     # Compare early vs late half-periods
     early_interval = crossings[1] - crossings[0]
@@ -181,6 +181,44 @@ def test_slalom_chirp():
     assert late_interval < early_interval, \
         f"Late interval ({late_interval:.3f}) should be shorter than early ({early_interval:.3f})"
     print(f"  Early half-period: {early_interval:.3f}s, Late: {late_interval:.3f}s")
+    print("PASS")
+
+
+def test_slalom_kinematic_feasibility():
+    print("\n" + "=" * 60)
+    print("Test: slalom trajectory respects v_max/omega_max constraints")
+    print("=" * 60)
+
+    v_max = 1.0
+    omega_max = 1.0
+    dt_check = 0.01
+    times = np.arange(0, 25, dt_check)
+    violations_v = 0
+    violations_omega = 0
+
+    for i in range(len(times) - 1):
+        s0 = slalom_trajectory(times[i])
+        s1 = slalom_trajectory(times[i + 1])
+        dx = s1[0] - s0[0]
+        dy = s1[1] - s0[1]
+        v = np.sqrt(dx ** 2 + dy ** 2) / dt_check
+        dtheta = np.arctan2(np.sin(s1[2] - s0[2]), np.cos(s1[2] - s0[2]))
+        omega = abs(dtheta) / dt_check
+
+        if v > v_max * 1.05:  # 5% tolerance
+            violations_v += 1
+        if omega > omega_max * 1.5:  # 50% tolerance for omega
+            violations_omega += 1
+
+    violation_rate_v = violations_v / len(times)
+    violation_rate_omega = violations_omega / len(times)
+    print(f"  v violations: {violations_v}/{len(times)} ({violation_rate_v:.1%})")
+    print(f"  omega violations: {violations_omega}/{len(times)} ({violation_rate_omega:.1%})")
+
+    assert violation_rate_v < 0.05, \
+        f"Too many v_max violations: {violation_rate_v:.1%}"
+    assert violation_rate_omega < 0.10, \
+        f"Too many omega_max violations: {violation_rate_omega:.1%}"
     print("PASS")
 
 
@@ -222,6 +260,7 @@ if __name__ == "__main__":
         test_straight_line,
         test_slalom_shape,
         test_slalom_chirp,
+        test_slalom_kinematic_feasibility,
         test_generate_reference_shape,
         test_create_trajectory_function,
         test_unknown_trajectory_type,

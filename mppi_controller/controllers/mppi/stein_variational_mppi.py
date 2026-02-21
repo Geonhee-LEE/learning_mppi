@@ -11,9 +11,9 @@ from mppi_controller.controllers.mppi.mppi_params import SteinVariationalMPPIPar
 from mppi_controller.controllers.mppi.base_mppi import MPPIController
 from mppi_controller.utils.stein_variational import (
     rbf_kernel,
-    rbf_kernel_gradient,
-    compute_svgd_update,
+    compute_svgd_update_efficient,
     median_bandwidth,
+    rbf_kernel_with_bandwidth,
 )
 
 
@@ -107,11 +107,10 @@ class SteinVariationalMPPIController(MPPIController):
         svgd_costs_history = [initial_costs.copy()]
 
         for iteration in range(self.svgd_num_iterations):
-            # 3.1. RBF 커널 계산
-            bandwidth = median_bandwidth(sampled_controls)
-            kernel = rbf_kernel(sampled_controls, bandwidth)
+            # 3.1. RBF 커널 + bandwidth 동시 계산 (K² 거리 1회만)
+            kernel, bandwidth = rbf_kernel_with_bandwidth(sampled_controls)
 
-            # 3.2. 비용 gradient 추정 (finite difference)
+            # 3.2. 비용 gradient 추정 (SPSA)
             grad_costs = self._estimate_cost_gradient(
                 state, sampled_controls, reference_trajectory
             )
@@ -119,12 +118,9 @@ class SteinVariationalMPPIController(MPPIController):
             # grad log p(x) = -grad cost(x) (비용 최소화)
             grad_log_prob = -grad_costs
 
-            # 3.3. 커널 gradient
-            grad_kernel = rbf_kernel_gradient(sampled_controls, kernel, bandwidth)
-
-            # 3.4. SVGD 업데이트
-            phi = compute_svgd_update(
-                sampled_controls, grad_log_prob, kernel, grad_kernel
+            # 3.3. SVGD 업데이트 (메모리 효율적 — (K,K,N,nu) 텐서 없음)
+            phi = compute_svgd_update_efficient(
+                sampled_controls, grad_log_prob, kernel, bandwidth
             )
 
             # 3.5. 제어 업데이트
@@ -203,47 +199,50 @@ class SteinVariationalMPPIController(MPPIController):
         epsilon: float = 1e-3,
     ) -> np.ndarray:
         """
-        비용 gradient를 finite difference로 추정
+        SPSA (Simultaneous Perturbation Stochastic Approximation)로 비용 gradient 추정
 
-        ∇C(u) ≈ [C(u + ε*e_i) - C(u)] / ε
+        전 차원을 동시 섭동하여 2회 rollout만으로 gradient를 추정.
+        기존 dimension-wise finite difference (N×nu회 rollout) 대비 ~30배 빠름.
+
+        ∇C(u) ≈ [C(u + ε·Δ) - C(u - ε·Δ)] / (2ε·Δ)
 
         Args:
             state: (nx,) 현재 상태
             controls: (K, N, nu) 제어 시퀀스
             reference_trajectory: (N+1, nx) 레퍼런스
-            epsilon: Finite difference step
+            epsilon: Perturbation step
 
         Returns:
             grad_costs: (K, N, nu) 비용 gradient
         """
         K, N, nu = controls.shape
 
-        # 현재 비용
-        trajectories = self.dynamics_wrapper.rollout(state, controls)
-        costs = self.cost_function.compute_cost(
-            trajectories, controls, reference_trajectory
+        # Rademacher 랜덤 방향 (±1)
+        delta = np.random.choice([-1.0, 1.0], size=(K, N, nu))
+
+        # 양방향 섭동
+        controls_plus = controls + epsilon * delta
+        controls_minus = controls - epsilon * delta
+
+        if self.u_min is not None and self.u_max is not None:
+            controls_plus = np.clip(controls_plus, self.u_min, self.u_max)
+            controls_minus = np.clip(controls_minus, self.u_min, self.u_max)
+
+        # 2회 rollout (기존 N×nu=60회 → 2회)
+        traj_plus = self.dynamics_wrapper.rollout(state, controls_plus)
+        traj_minus = self.dynamics_wrapper.rollout(state, controls_minus)
+
+        cost_plus = self.cost_function.compute_cost(
+            traj_plus, controls_plus, reference_trajectory
+        )
+        cost_minus = self.cost_function.compute_cost(
+            traj_minus, controls_minus, reference_trajectory
         )
 
-        # Gradient 초기화
-        grad_costs = np.zeros_like(controls)
-
-        # 각 차원별로 finite difference
-        for t in range(N):
-            for u_dim in range(nu):
-                # Perturb
-                controls_perturbed = controls.copy()
-                controls_perturbed[:, t, u_dim] += epsilon
-
-                # 비용 재계산
-                trajectories_perturbed = self.dynamics_wrapper.rollout(
-                    state, controls_perturbed
-                )
-                costs_perturbed = self.cost_function.compute_cost(
-                    trajectories_perturbed, controls_perturbed, reference_trajectory
-                )
-
-                # Gradient
-                grad_costs[:, t, u_dim] = (costs_perturbed - costs) / epsilon
+        # SPSA gradient: g_i = (C+ - C-) / (2·ε·Δ_i)
+        grad_costs = (
+            (cost_plus - cost_minus)[:, None, None] / (2.0 * epsilon * delta)
+        )
 
         return grad_costs
 

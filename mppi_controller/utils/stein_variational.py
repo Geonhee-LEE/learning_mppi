@@ -49,6 +49,40 @@ def rbf_kernel(X: np.ndarray, bandwidth: float = None) -> np.ndarray:
     return kernel
 
 
+def rbf_kernel_with_bandwidth(X: np.ndarray) -> Tuple[np.ndarray, float]:
+    """
+    RBF 커널 + median bandwidth를 한 번의 K² 거리 계산으로 동시 산출.
+
+    Args:
+        X: (K, ...) 샘플 집합
+
+    Returns:
+        kernel: (K, K) RBF 커널 행렬
+        bandwidth: float median heuristic bandwidth
+    """
+    K = X.shape[0]
+    X_flat = X.reshape(K, -1)
+
+    sq_norms = np.sum(X_flat ** 2, axis=1)
+    sq_distances = sq_norms[:, None] + sq_norms[None, :] - 2 * X_flat @ X_flat.T
+
+    # Median bandwidth (대각 제외)
+    np.fill_diagonal(sq_distances, np.inf)
+    sq_dists_off = sq_distances.ravel()
+    sq_dists_off = sq_dists_off[sq_dists_off < np.inf]
+    if len(sq_dists_off) > 0:
+        median_sq_dist = np.median(sq_dists_off)
+        bandwidth = np.sqrt(median_sq_dist / np.log(K + 1))
+    else:
+        bandwidth = 1.0
+
+    # 대각 복원 후 커널 계산
+    np.fill_diagonal(sq_distances, 0.0)
+    kernel = np.exp(-sq_distances / (2 * bandwidth ** 2))
+
+    return kernel, bandwidth
+
+
 def rbf_kernel_gradient(
     X: np.ndarray, kernel: np.ndarray, bandwidth: float
 ) -> np.ndarray:
@@ -120,6 +154,46 @@ def compute_svgd_update(
     # SVGD update
     phi = (term1 + term2) / K
 
+    return phi
+
+
+def compute_svgd_update_efficient(
+    X: np.ndarray,
+    grad_log_prob: np.ndarray,
+    kernel: np.ndarray,
+    bandwidth: float,
+) -> np.ndarray:
+    """
+    메모리 효율적 SVGD 업데이트 (O(K²D) 텐서 생성 없음)
+
+    kernel gradient의 합 Σ_j ∇K(xi,xj)를 행렬 연산으로 직접 계산:
+      Σ_j ∇K(xi,xj) = -1/h² (rowsum(K)·xi - K@X)
+
+    (K,K,...) 텐서를 생성하지 않아 K=1024, D=60일 때 503MB→0MB 절약.
+
+    Args:
+        X: (K, ...) 샘플 집합
+        grad_log_prob: (K, ...) ∇ log p(x)
+        kernel: (K, K) RBF 커널
+        bandwidth: 대역폭 h
+
+    Returns:
+        phi: (K, ...) SVGD 업데이트 방향
+    """
+    K = X.shape[0]
+    original_shape = X.shape[1:]
+    X_flat = X.reshape(K, -1)  # (K, D)
+    grad_flat = grad_log_prob.reshape(K, -1)  # (K, D)
+
+    # Term 1: Σ_j K(xi,xj) · ∇log p(xj) = kernel @ grad
+    term1 = kernel @ grad_flat  # (K, D)
+
+    # Term 2: Σ_j ∇_j K(xi,xj) = -1/h² · (rowsum(K)·X - K@X)
+    kernel_row_sum = kernel.sum(axis=1)  # (K,)
+    kernel_X = kernel @ X_flat  # (K, D)
+    term2 = -(kernel_row_sum[:, None] * X_flat - kernel_X) / (bandwidth ** 2)
+
+    phi = ((term1 + term2) / K).reshape(K, *original_shape)
     return phi
 
 

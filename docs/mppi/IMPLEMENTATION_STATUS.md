@@ -1,7 +1,7 @@
 # MPPI 구현 현황
 
-**날짜**: 2026-02-07
-**상태**: Phase 4 완료 (9/9 MPPI 변형 + 3/3 학습 모델) ✅
+**날짜**: 2026-02-21 (Updated)
+**상태**: Phase 4 + Safety + GPU + MAML + Post-MAML + 최적화 완료 ✅
 
 ## 구현 완료 변형
 
@@ -41,12 +41,16 @@
 - **커밋**: 7a01534
 - **파라미터**: `cvar_alpha` (α<1.0 → 보수적)
 
-### M3d: Stein Variational MPPI (SVMPC) ✅
+### M3d: Stein Variational MPPI (SVMPC) ✅ + SPSA 최적화
 - **파일**: `mppi_controller/controllers/mppi/stein_variational_mppi.py`
 - **특징**: SVGD로 샘플 다양성 유지
-- **성능**: RMSE 0.009m, 778ms (O(K²) 복잡도)
+- **성능**: RMSE 0.009m, **113ms** (SPSA 최적화 후, 기존 1515ms에서 13x 개선)
 - **커밋**: 4945838
-- **유틸리티**: `utils/stein_variational.py` (RBF 커널, median bandwidth)
+- **유틸리티**: `utils/stein_variational.py` (RBF 커널, median bandwidth, efficient SVGD)
+- **최적화 (2026-02-21)**:
+  1. SPSA gradient: per-dim finite diff (N×nu=60 rollouts) → 동시 섭동 (2 rollouts)
+  2. Efficient SVGD: (K,K,N,nu) 텐서 제거 → 행렬 연산 (503MB→0MB at K=1024)
+  3. Merged kernel+bandwidth: `rbf_kernel_with_bandwidth()` K² 거리 1회 계산
 
 ### M3.5a: Smooth MPPI ✅
 - **파일**: `mppi_controller/controllers/mppi/smooth_mppi.py`
@@ -130,7 +134,7 @@
 | **Tsallis** | 0.010 | 43 | 탐색 조절 | 다중 모드 탐색 |
 | **Risk-Aware** | 0.013 | 42 | 안전 | 장애물 회피 |
 | **Smooth** | 0.009 | 42 | 부드러움 | 액추에이터 보호 |
-| **SVMPC** | 0.009 | 778 | 샘플 품질 | 고품질 제어 |
+| **SVMPC** | 0.009 | 113 | 샘플 품질 (SPSA) | 고품질 제어 |
 | **Spline** | 0.018 | 41 | 메모리 효율 | 메모리 제약 |
 | **SVG** | 0.007 | 273 | SVGD 고속화 | 품질+속도 균형 |
 
@@ -239,56 +243,84 @@ f9052de - feat: add Tube-MPPI with ancillary controller
 - Bhardwaj et al. (2024) - "Spline-MPPI"
 - Kondo et al. (2024) - "SVG-MPPI"
 
+## Safety-Critical Control (8종) ✅
+
+| # | Method | 파일 | 핵심 |
+|---|--------|------|------|
+| 1 | Standard CBF | `cbf_mppi.py` | Distance-based barrier + QP filter |
+| 2 | C3BF | `c3bf_cost.py` | Relative velocity-aware collision cone |
+| 3 | DPCBF | `dpcbf_cost.py` | LoS + Gaussian-shaped adaptive boundary |
+| 4 | Optimal-Decay | `optimal_decay_cbf_filter.py` | Joint (u,ω) optimization |
+| 5 | Gatekeeper | `gatekeeper.py` | Backup trajectory infinite-time safety |
+| 6 | Backup CBF | `backup_cbf_filter.py` | Sensitivity propagation multi-constraint QP |
+| 7 | Multi-Robot CBF | `multi_robot_cbf.py` | Pairwise inter-robot collision avoidance |
+| 8 | Shield-MPPI | `shield_mppi.py` | Per-timestep analytical CBF enforcement |
+
+## GPU 가속 ✅
+
+- `gpu/` 패키지: TorchDiffDriveKinematic, TorchCompositeCost, TorchGaussianSampler
+- RTX 5080: K=4096→4.4x, K=8192→8.1x speedup
+- `device="cuda"` 설정만으로 활성화 (기존 CPU 코드 무수정)
+
+## 학습 모델 9종 ✅
+
+| # | 모델 | 파일 | 특징 |
+|---|------|------|------|
+| 1 | Neural Network | `neural_dynamics.py` | PyTorch MLP end-to-end |
+| 2 | Gaussian Process | `gaussian_process_dynamics.py` | GPyTorch sparse GP + 불확실성 |
+| 3 | Residual | `residual_dynamics.py` | Physics + learned correction |
+| 4 | Ensemble | `ensemble_dynamics.py` | M개 MLP 앙상블 불확실성 |
+| 5 | MC-Dropout | `mc_dropout_dynamics.py` | 추론 시 dropout 불확실성 |
+| 6 | MAML | `maml_dynamics.py` | FOMAML/Reptile few-shot adaptation |
+| 7 | EKF Adaptive | `ekf_dynamics.py` | 파라미터 실시간 추정 (오프라인 불필요) |
+| 8 | L1 Adaptive | `l1_adaptive_dynamics.py` | 외란 추정 + 저역통과 필터 |
+| 9 | ALPaCA | `alpaca_dynamics.py` | Bayesian linear regression 적응 |
+
+## 최적화 히스토리
+
+### SVMPC SPSA 최적화 (2026-02-21)
+- **Before**: 1464ms/step (per-dim finite diff = 60 rollouts/iteration)
+- **After**: 113ms/step (SPSA = 2 rollouts/iteration)
+- **Speedup**: 13x
+- K=256 최적: 26ms/step, RMSE=0.009m
+
+### Smooth MPPI cumsum 벡터화 (2026-02-21)
+- Python for-loop → `np.cumsum` 벡터화
+
+### Simulator 메모리 최적화 (2026-02-21)
+- `store_info=False` 파라미터 추가 (300-500MB/cell 절약)
+
+### Slalom 궤적 수정 (2026-02-21)
+- 적응형 진폭: `A_eff = min(amp, v_budget / (2π·f_inst))`
+- 전 구간 v_max 이내 보장
+
+## 벤치마크 도구
+
+- `examples/mppi_all_variants_benchmark.py`: 9종 벤치마크
+- `examples/comparison/mppi_variant_trajectory_grid_demo.py`: 변형×궤적 그리드
+  - `--mode obstacle`: 장애물 회피 모드
+  - `--with-cbf`: CBF/Shield 변형 추가
+- `examples/comparison/model_mismatch_comparison_demo.py`: 10-Way 비교
+
 ## 다음 단계 (M4)
 
 ### ROS2 통합
-- [ ] ROS2 기본 노드 구현
 - [ ] nav2 Controller 플러그인
-- [ ] RVIZ 시각화
+- [ ] RVIZ 시각화 고도화
 - [ ] 실시간 성능 최적화
 
-### 문서화
-- [ ] MPPI_GUIDE.md 업데이트
-- [ ] API 문서 생성
-- [ ] 사용 예제 추가
-
-### 고급 기능
-- [ ] GPU 가속 (CuPy/JAX)
-- [ ] 동적 장애물 회피
-- [ ] 경로 재계획
+### C++ 포팅
+- [ ] C++ MPPI 코어 (Eigen)
+- [ ] pybind11 바인딩
 
 ## 통계
 
-- **총 코드 라인**: ~10,000+ 라인
-- **구현 기간**: 2026-02-07
-- **Python 파일**: 40+
-- **테스트**: 48개 (모두 통과 ✅)
-- **MPPI 변형**: 9개 (완료 ✅)
-- **학습 모델**: 3개 (완료 ✅)
-- **학습 파이프라인**: 3개 (Neural/GP/Online ✅)
-- **Plot 갤러리**: 9개 PNG
-- **문서**: PRD.md, IMPLEMENTATION_STATUS.md, LEARNED_MODELS_GUIDE.md (743 lines), ONLINE_LEARNING.md (481 lines)
-
-## 결론
-
-**Phase 4 완료**: 9가지 MPPI 변형 + 3가지 학습 모델을 성공적으로 구현하여 다양한 제어 시나리오와 동역학 모델링에 대응 가능한 완전한 MPPI 라이브러리를 구축했습니다.
-
-각 변형은 특정 사용 사례에 최적화되어 있으며, 벤치마크 도구를 통해 성능 비교 및 최적 선택이 가능합니다. 학습 모델은 데이터 기반 동역학 모델링, 불확실성 정량화, 온라인 적응을 지원합니다.
-
-**핵심 성과:**
-- ✅ 9/9 MPPI 변형 구현 완료
-- ✅ 3/3 학습 모델 구현 완료 (Neural/GP/Residual)
-- ✅ 3개 학습 파이프라인 (Neural/GP/Online)
-- ✅ 모든 테스트 통과 (48 tests)
-- ✅ 모델별 비교 완료 (Kinematic/Dynamic/Learned)
-- ✅ 종합 벤치마크 도구 제공
-- ✅ Plot 갤러리 9개 생성
-- ✅ 상세 문서화 완료 (1,224 lines)
-
-**다음 단계 (Phase 5):**
-- ROS2 통합 (nav2 플러그인)
-- 실제 로봇 테스트
-- GPU 가속 (CuPy/JAX)
-- C++ 포팅
-
-모든 준비가 완료되어 실제 로봇 배포 단계로 진행할 수 있습니다.
+- **총 코드 라인**: ~27,000+ 라인
+- **최종 업데이트**: 2026-02-21
+- **테스트**: 487개 (37 파일, 모두 통과 ✅)
+- **MPPI 변형**: 9개 ✅
+- **안전 제어**: 8개 ✅
+- **학습 모델**: 9개 ✅ (Neural/GP/Residual/Ensemble/MC-Dropout/MAML/EKF/L1/ALPaCA)
+- **로봇 모델**: 5개 ✅ (DiffDrive/Ackermann/Swerve × Kinematic/Dynamic)
+- **시뮬레이션**: 10 시나리오 + 4 외란 프로필
+- **GPU 가속**: RTX 5080 K=8192→8.1x

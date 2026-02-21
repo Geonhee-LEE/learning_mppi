@@ -32,12 +32,14 @@ class Simulator:
         dt: float,
         process_noise_std: Optional[np.ndarray] = None,
         online_learner=None,
+        store_info: bool = True,
     ):
         self.model = model
         self.controller = controller
         self.dt = dt
         self.process_noise_std = process_noise_std
         self.online_learner = online_learner
+        self.store_info = store_info
 
         # 히스토리 초기화
         self.history = {
@@ -109,7 +111,8 @@ class Simulator:
         self.history["control"].append(control.copy())
         self.history["reference"].append(reference_trajectory[0].copy())
         self.history["solve_time"].append(solve_time)
-        self.history["info"].append(info)
+        if self.store_info:
+            self.history["info"].append(info)
 
         # 7. 상태 업데이트
         self.state = next_state

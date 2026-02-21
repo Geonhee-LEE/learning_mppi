@@ -91,37 +91,54 @@ def sine_wave_trajectory(
 
 def slalom_trajectory(
     t: float,
-    amplitude: float = 2.5,
+    amplitude: float = 0.8,
     base_wavelength: float = 8.0,
-    velocity: float = 0.8,
-    chirp_rate: float = 0.008,
+    velocity: float = 0.45,
+    chirp_rate: float = 0.003,
+    v_max: float = 1.0,
 ) -> np.ndarray:
     """
-    슬라럼 궤적 생성 (chirp sine 기반)
+    슬라럼 궤적 생성 (chirp sine 기반, 적응형 진폭)
 
-    후반부로 갈수록 주파수가 증가하여 급격한 곡률 변화를 생성.
+    후반부로 갈수록 주파수가 증가하며, 진폭이 자동 감소하여
+    전 구간에서 로봇의 속도 제약(v_max)을 준수.
 
     Args:
         t: 현재 시간 (초)
-        amplitude: 진폭 (m)
+        amplitude: 최대 진폭 (m)
         base_wavelength: 초기 파장 (m)
         velocity: 전진 속도 (m/s)
         chirp_rate: 주파수 증가율 (Hz/s)
+        v_max: 로봇 최대 속도 (m/s), 적응형 진폭 계산에 사용
 
     Returns:
         state: (3,) [x, y, θ]
     """
     f0 = velocity / base_wavelength
+    f_inst = f0 + chirp_rate * t
+    v_budget = 0.9 * v_max
+    # 적응형 진폭: 순간 주파수 기반으로 v_max 이내 보장
+    max_lateral_v = v_budget - velocity  # 횡방향 속도 예산
+    if max_lateral_v > 0 and f_inst > 0:
+        a_eff = min(amplitude, max_lateral_v / (2 * np.pi * f_inst))
+    else:
+        a_eff = amplitude
+
     x = velocity * t
     phase = 2 * np.pi * (f0 * t + 0.5 * chirp_rate * t ** 2)
-    y = amplitude * np.sin(phase)
+    y = a_eff * np.sin(phase)
 
     # heading via numerical differentiation
     dt_num = 0.001
     t1 = t + dt_num
+    f_inst1 = f0 + chirp_rate * t1
+    if max_lateral_v > 0 and f_inst1 > 0:
+        a_eff1 = min(amplitude, max_lateral_v / (2 * np.pi * f_inst1))
+    else:
+        a_eff1 = amplitude
     x1 = velocity * t1
     phase1 = 2 * np.pi * (f0 * t1 + 0.5 * chirp_rate * t1 ** 2)
-    y1 = amplitude * np.sin(phase1)
+    y1 = a_eff1 * np.sin(phase1)
     heading = np.arctan2(y1 - y, x1 - x)
 
     return np.array([x, y, heading])

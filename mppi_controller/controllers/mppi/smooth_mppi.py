@@ -87,15 +87,11 @@ class SmoothMPPIController(MPPIController):
         )
         sampled_delta_controls = self.delta_U + delta_noise  # (K, N, nu)
 
-        # 2. **ΔU → U로 복원** (누적합)
-        # U[t] = U[t-1] + ΔU[t]
-        sampled_controls = np.zeros((K, self.params.N, self.model.control_dim))
-        sampled_controls[:, 0, :] = self.U[0:1, :] + sampled_delta_controls[:, 0, :]
-
-        for t in range(1, self.params.N):
-            sampled_controls[:, t, :] = (
-                sampled_controls[:, t - 1, :] + sampled_delta_controls[:, t, :]
-            )
+        # 2. **ΔU → U로 복원** (누적합, 벡터화)
+        # U[t] = U[0] + Σ_{i=0}^{t} ΔU[i]
+        sampled_controls = self.U[0:1, :][np.newaxis, :, :] + np.cumsum(
+            sampled_delta_controls, axis=1
+        )  # (K, N, nu)
 
         # 제어 제약 클리핑
         if self.u_min is not None and self.u_max is not None:

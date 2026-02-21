@@ -2,9 +2,9 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-426%20Passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-487%20Passing-brightgreen)](tests/)
 
-A comprehensive MPPI (Model Predictive Path Integral) control library featuring 9 SOTA variants, 8 safety-critical control methods, 5 robot model types, GPU acceleration, learning-based dynamics, and MAML meta-learning for real-time adaptation.
+A comprehensive MPPI (Model Predictive Path Integral) control library featuring 9 SOTA variants, 8 safety-critical control methods, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, and post-MAML adaptation (EKF/L1/ALPaCA) for real-time adaptation.
 
 ## Key Features
 
@@ -64,8 +64,9 @@ Enable GPU acceleration with just `device="cuda"`. No changes to existing CPU co
 
 ### Learning-Based Models
 
-- **6 model types**: Neural Network, Gaussian Process, Residual, Ensemble NN, MC-Dropout Bayesian NN, **MAML (Meta-Learning)**
+- **9 model types**: Neural Network, Gaussian Process, Residual, Ensemble NN, MC-Dropout Bayesian NN, **MAML (Meta-Learning)**, **EKF Adaptive**, **L1 Adaptive**, **ALPaCA (Bayesian)**
 - **MAML meta-learning**: FOMAML/Reptile-based few-shot adaptation — Residual MAML-5D achieves 0.055m RMSE under combined disturbances (noise=0.7)
+- **Post-MAML adaptation**: EKF (parameter estimation), L1 (disturbance estimation + low-pass filter), ALPaCA (Bayesian linear regression)
 - **Disturbance simulation**: WindGust, TerrainChange, Sinusoidal, Combined profiles for evaluating model adaptation
 - **Uncertainty-aware cost**: GP/Ensemble std-proportional penalty
 - **Online learning**: Real-time model adaptation with checkpoint versioning and auto-rollback
@@ -82,7 +83,7 @@ Enable GPU acceleration with just `device="cuda"`. No changes to existing CPU co
 | **SVG-MPPI** | **0.005m** | 51ms | Best accuracy |
 | **Vanilla** | 0.006m | **5.0ms** | Fastest |
 | **Spline** | 0.012m | 14ms | 73% less memory |
-| **SVMPC** | 0.007m | 1035ms | Sample diversity |
+| **SVMPC** | 0.007m | 113ms | Sample diversity (SPSA optimized) |
 
 ### Safety Comparison (Static Obstacles)
 
@@ -377,6 +378,19 @@ Under time-varying disturbances (wind gusts + terrain friction changes + sinusoi
 # Full 9-variant comparison
 python examples/mppi_all_variants_benchmark.py --trajectory circle --duration 15
 
+# Variant × Trajectory grid benchmark (8 variants × 5 trajectories)
+python examples/comparison/mppi_variant_trajectory_grid_demo.py
+
+# Grid with specific variants/trajectories
+python examples/comparison/mppi_variant_trajectory_grid_demo.py \
+    --variants vanilla log spline svg --trajectories circle slalom figure8
+
+# Obstacle avoidance grid mode (with ObstacleCost injection)
+python examples/comparison/mppi_variant_trajectory_grid_demo.py --mode obstacle
+
+# Obstacle + CBF/Shield comparison (10 variants)
+python examples/comparison/mppi_variant_trajectory_grid_demo.py --mode obstacle --with-cbf
+
 # Individual variant comparisons
 python examples/comparison/smooth_mppi_models_comparison.py --trajectory circle
 python examples/comparison/spline_mppi_models_comparison.py --trajectory circle
@@ -419,7 +433,7 @@ python examples/learned/gp_vs_neural_comparison_demo.py --all
 # Online learning demo
 python examples/learned/online_learning_demo.py --duration 60.0 --plot
 
-# MAML 7-Way comparison (meta-train + evaluate)
+# MAML 10-Way comparison (meta-train + evaluate, includes EKF/L1/ALPaCA)
 python examples/comparison/model_mismatch_comparison_demo.py \
     --all --world dynamic --trajectory circle --duration 20
 
@@ -488,7 +502,7 @@ PYTHONPATH=. python examples/simulation_environments/scenarios/dynamic_bouncing.
 | Log | 0.006 | 5.1 | Numerical stability |
 | Tsallis | 0.006 | 5.2 | Exploration tuning |
 | Risk-Aware | 0.008 | 5.3 | CVaR conservative |
-| SVMPC | 0.007 | 1035 | O(K^2) diversity |
+| SVMPC | 0.007 | 113 | SPSA-optimized SVGD |
 | Smooth | 0.006 | 5.4 | Control smoothness |
 | Spline | 0.012 | 14.5 | 73% less memory |
 | **SVG** | **0.005** | 51.3 | **Best accuracy** |
@@ -539,7 +553,7 @@ PYTHONPATH=. python examples/simulation_environments/scenarios/dynamic_bouncing.
 
 ![SVMPC Models Comparison](plots/svmpc_models_comparison.png)
 
-**Stein Variational MPC**: O(K^2) kernel operations for sample diversity (1035ms).
+**Stein Variational MPC**: SPSA gradient (60→2 rollouts) + efficient SVGD (no K²D tensor). 13x faster after optimization (1464ms→113ms).
 
 ---
 
@@ -692,7 +706,7 @@ mppi_ros2/
 │   ├── simulation/                 # Simulation tools
 │   └── utils/                      # Utilities
 │
-├── tests/                          # Unit tests (426 tests, 34 files)
+├── tests/                          # Unit tests (487 tests, 37 files)
 ├── examples/                       # Demo scripts
 │   └── simulation_environments/    # 10 simulation scenarios
 │       ├── common/                 # Shared infrastructure (ABC, obstacles, visualizer)
@@ -714,7 +728,7 @@ PYTHONPATH=. python -m pytest tests/test_safety_s3.py -v -o "addopts="
 PYTHONPATH=. python -m pytest tests/test_robot_models.py -v -o "addopts="
 ```
 
-**Test status**: 426 tests passing across 34 test files
+**Test status**: 487 tests passing across 37 test files
 
 ## ROS2 Integration
 
@@ -769,6 +783,7 @@ ros2 launch mppi_ros2 mppi_sim.launch.py model_type:=dynamic
 | `figure8` | Figure-8 trajectory |
 | `sine` | Sinusoidal trajectory |
 | `lemniscate` | Infinity-shape trajectory |
+| `slalom` | Adaptive-amplitude slalom (chirp) |
 | `straight` | Straight line |
 
 ---
@@ -840,10 +855,14 @@ ros2 launch mppi_ros2 mppi_sim.launch.py model_type:=dynamic
 - [x] GPU acceleration (PyTorch CUDA, 8.1x speedup)
 - [x] Learning pipeline (NN/GP/Residual/Ensemble/MC-Dropout/MAML)
 - [x] MAML meta-learning with Residual MAML architecture + residual meta-training
+- [x] Post-MAML adaptation (EKF/L1/ALPaCA) with 10-Way comparison
 - [x] Disturbance simulation (WindGust/TerrainChange/Sinusoidal/Combined)
 - [x] Reptile meta-learning trainer
 - [x] Online learning with checkpoint versioning
-- [x] 426 unit tests (34 files)
+- [x] SVMPC SPSA optimization (1464ms→113ms, 13x speedup)
+- [x] Slalom trajectory with adaptive amplitude (kinematic feasibility)
+- [x] Obstacle avoidance grid benchmark (--mode obstacle, --with-cbf)
+- [x] 487 unit tests (37 files)
 - [x] 10 simulation environments (static/dynamic/multi-robot/parking/racing/corridor)
 
 ### In Progress

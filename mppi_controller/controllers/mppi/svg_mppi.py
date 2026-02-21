@@ -10,10 +10,8 @@ from mppi_controller.models.base_model import RobotModel
 from mppi_controller.controllers.mppi.mppi_params import SVGMPPIParams
 from mppi_controller.controllers.mppi.base_mppi import MPPIController
 from mppi_controller.utils.stein_variational import (
-    rbf_kernel,
-    rbf_kernel_gradient,
-    median_bandwidth,
-    compute_svgd_update,
+    rbf_kernel_with_bandwidth,
+    compute_svgd_update_efficient,
 )
 
 
@@ -104,10 +102,7 @@ class SVGMPPIController(MPPIController):
 
         for iteration in range(self.svgd_iterations):
             # SVGD 파라미터
-            bandwidth = median_bandwidth(guide_controls)
-
-            # 커널 계산 (G x G)
-            kernel = rbf_kernel(guide_controls, bandwidth)
+            kernel, bandwidth = rbf_kernel_with_bandwidth(guide_controls)
 
             # 비용 그래디언트 추정
             grad_costs = self._estimate_cost_gradient(
@@ -117,12 +112,9 @@ class SVGMPPIController(MPPIController):
             # log probability gradient (negative cost gradient)
             grad_log_prob = -grad_costs
 
-            # 커널 그래디언트
-            grad_kernel = rbf_kernel_gradient(guide_controls, kernel, bandwidth)
-
-            # SVGD 업데이트
-            phi = compute_svgd_update(
-                guide_controls, grad_log_prob, kernel, grad_kernel
+            # SVGD 업데이트 (메모리 효율적)
+            phi = compute_svgd_update_efficient(
+                guide_controls, grad_log_prob, kernel, bandwidth
             )
 
             # Guide 업데이트

@@ -85,8 +85,8 @@ class TrajectoryPublisher(Node):
         # Trajectory-specific
         self.declare_parameter('radius', 5.0)
         self.declare_parameter('frequency', 0.1)  # Hz
-        self.declare_parameter('amplitude', 3.0)
-        self.declare_parameter('velocity', 1.0)  # m/s
+        self.declare_parameter('amplitude', 0.8)
+        self.declare_parameter('velocity', 0.45)  # m/s
 
     def _get_trajectory_generator(self) -> Callable:
         """Get trajectory generator function based on type"""
@@ -235,27 +235,42 @@ class TrajectoryPublisher(Node):
 
     def _slalom_trajectory(self, t: float, N: int, dt: float) -> np.ndarray:
         """
-        Slalom trajectory (chirp sine — increasing frequency)
+        Slalom trajectory (chirp sine — adaptive amplitude)
 
         Returns:
             poses: (N+1, 3) - [x, y, theta]
         """
         poses = np.zeros((N + 1, 3))
-        chirp_rate = 0.008
-        f0 = self.velocity / 8.0  # base_wavelength = 8.0
+        chirp_rate = 0.003
+        base_wavelength = 8.0
+        f0 = self.velocity / base_wavelength
+        v_max = 1.0
+        v_budget = 0.9 * v_max
+        max_lateral_v = v_budget - self.velocity
 
         for i in range(N + 1):
             t_i = t + i * dt
+            f_inst = f0 + chirp_rate * t_i
+            if max_lateral_v > 0 and f_inst > 0:
+                a_eff = min(self.amplitude, max_lateral_v / (2 * np.pi * f_inst))
+            else:
+                a_eff = self.amplitude
+
             x = self.velocity * t_i
             phase = 2 * np.pi * (f0 * t_i + 0.5 * chirp_rate * t_i ** 2)
-            y = self.amplitude * np.sin(phase)
+            y = a_eff * np.sin(phase)
 
             # Heading via numerical differentiation
             dt_num = 0.001
             t_next = t_i + dt_num
+            f_inst1 = f0 + chirp_rate * t_next
+            if max_lateral_v > 0 and f_inst1 > 0:
+                a_eff1 = min(self.amplitude, max_lateral_v / (2 * np.pi * f_inst1))
+            else:
+                a_eff1 = self.amplitude
             x_next = self.velocity * t_next
             phase_next = 2 * np.pi * (f0 * t_next + 0.5 * chirp_rate * t_next ** 2)
-            y_next = self.amplitude * np.sin(phase_next)
+            y_next = a_eff1 * np.sin(phase_next)
             heading = np.arctan2(y_next - y, x_next - x)
 
             poses[i, 0] = x
