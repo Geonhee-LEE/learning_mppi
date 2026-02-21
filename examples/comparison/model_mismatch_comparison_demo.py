@@ -12,13 +12,17 @@ Model Mismatch Comparison Demo
     3. Residual (Hybrid): 기구학 + NN 보정 — 물리+데이터 융합
     4. Oracle (Perfect): 섭동 동역학 — 이론적 상한
 
-  --world dynamic: DifferentialDriveDynamic(5D) 세계 → 6-Way 비교
+  --world dynamic: DifferentialDriveDynamic(5D) 세계 → 10-Way 비교
     1. Kinematic (3D): 관성/마찰 모름
     2. Neural (3D): 데이터에서 전체 학습
     3. Residual (3D): 물리+데이터 융합
     4. Dynamic (5D): 구조 알지만 파라미터 틀림 (c_v=0.1 vs 실제 0.5)
     5. MAML (3D): FOMAML 메타 학습 + 실시간 few-shot 적응
-    6. Oracle (5D): 정확한 파라미터
+    6. MAML-5D (5D): 5D 잔차 MAML 적응
+    7. EKF (5D): 확장 칼만 필터 파라미터 추정
+    8. L1 (5D): L1 적응 제어 외란 추정
+    9. ALPaCA (5D): Bayesian last-layer 적응
+    10. Oracle (5D): 정확한 파라미터
 
 Usage:
     # Perturbed world (기본, 4-way)
@@ -47,14 +51,15 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from mppi_controller.models.kinematic.differential_drive_kinematic import (
     DifferentialDriveKinematic,
 )
-from mppi_controller.models.dynamic.differential_drive_dynamic import (
-    DifferentialDriveDynamic,
-)
 from mppi_controller.models.base_model import RobotModel
 from mppi_controller.models.learned.neural_dynamics import NeuralDynamics
 from mppi_controller.models.learned.residual_dynamics import ResidualDynamics
 from mppi_controller.models.learned.maml_dynamics import MAMLDynamics
+from mppi_controller.models.learned.ekf_dynamics import EKFAdaptiveDynamics
+from mppi_controller.models.learned.l1_adaptive_dynamics import L1AdaptiveDynamics
+from mppi_controller.models.learned.alpaca_dynamics import ALPaCADynamics
 from mppi_controller.learning.maml_trainer import MAMLTrainer
+from mppi_controller.learning.alpaca_trainer import ALPaCATrainer
 from mppi_controller.controllers.mppi.mppi_params import MPPIParams
 from mppi_controller.controllers.mppi.base_mppi import MPPIController
 from mppi_controller.controllers.mppi.cost_functions import (
@@ -96,6 +101,7 @@ DYNAMIC_NEURAL_MODEL_FILE = "dynamic_neural_model.pth"
 DYNAMIC_RESIDUAL_MODEL_FILE = "dynamic_residual_model.pth"
 DYNAMIC_MAML_MODEL_FILE = "dynamic_maml_meta_model.pth"
 DYNAMIC_MAML_5D_MODEL_FILE = "dynamic_maml_5d_meta_model.pth"
+DYNAMIC_ALPACA_MODEL_FILE = "dynamic_alpaca_meta_model.pth"
 
 # ==================== 섭동 파라미터 ====================
 # 강한 미스매치: 실제 로봇의 바닥 마찰 + 모터 바이어스 + 비대칭 마찰
@@ -218,8 +224,8 @@ class PerturbedDiffDriveModel(RobotModel):
 
 # ==================== Dynamic World (5D 현실 세계) ====================
 
-# DifferentialDriveDynamic의 파라미터: [x,y,θ,v,ω], 제어=[a,α]
-# 기구학 컨트롤러는 [v_cmd, ω_cmd]를 출력하므로 PD 변환 필요.
+# DynamicKinematicAdapter: [x,y,θ,v,ω], 제어=[v_cmd,ω_cmd]
+# PD + friction이 RK4 매 substep에서 일관되게 재계산됨.
 DYNAMIC_WORLD_PARAMS = {
     "c_v": 0.5,          # 선형 마찰 계수
     "c_omega": 0.3,      # 각속도 마찰 계수
@@ -231,10 +237,13 @@ DYNAMIC_WORLD_PARAMS = {
 
 class DynamicWorld:
     """
-    5D DifferentialDriveDynamic을 "현실 세계"로 감싸는 래퍼.
+    DynamicKinematicAdapter를 "현실 세계"로 감싸는 래퍼.
 
-    velocity command [v_cmd, ω_cmd] → PD control → [a, α] → 5D step.
+    velocity command [v_cmd, ω_cmd] → DynamicKinematicAdapter(RK4) → 5D step.
     외부에는 3D observation [x, y, θ]만 반환.
+
+    DynamicKinematicAdapter를 직접 사용하여 Oracle과 동일한 RK4 적분 구조 보장.
+    (PD + friction이 RK4 매 substep에서 일관되게 재계산됨)
 
     disturbance가 설정되면 시간에 따라 변하는 외란을 주입:
     - get_force(): additive 5D force
@@ -248,13 +257,9 @@ class DynamicWorld:
         self._base_c_omega = c_omega
         self._c_v = c_v
         self._c_omega = c_omega
-        self.dynamic_model = DifferentialDriveDynamic(
-            c_v=c_v, c_omega=c_omega,
-            a_max=5.0, alpha_max=5.0,    # PD 출력 범위 충분히 넓게
-            v_max=2.0, omega_max=2.0,
+        self._adapter = DynamicKinematicAdapter(
+            c_v=c_v, c_omega=c_omega, k_v=k_v, k_omega=k_omega,
         )
-        self.k_v = k_v
-        self.k_omega = k_omega
         self.process_noise_std = process_noise_std
         self.state_5d = np.zeros(5)  # [x, y, θ, v, ω]
         self.disturbance = disturbance
@@ -267,13 +272,13 @@ class DynamicWorld:
         # 마찰 계수 초기화
         self._c_v = self._base_c_v
         self._c_omega = self._base_c_omega
-        self.dynamic_model.c_v = self._base_c_v
-        self.dynamic_model.c_omega = self._base_c_omega
+        self._adapter._c_v = self._base_c_v
+        self._adapter._c_omega = self._base_c_omega
         return self.get_observation()
 
     def step(self, velocity_cmd, dt, add_noise=True):
         """
-        velocity_cmd = [v_cmd, ω_cmd] → PD → [a, α] → 5D step → 3D obs.
+        velocity_cmd = [v_cmd, ω_cmd] → DynamicKinematicAdapter.step() → 3D obs.
         """
         # 외란에 의한 파라미터 변동 적용
         if self.disturbance is not None:
@@ -281,18 +286,10 @@ class DynamicWorld:
             if param_delta:
                 self._c_v = self._base_c_v + param_delta.get("delta_c_v", 0.0)
                 self._c_omega = self._base_c_omega + param_delta.get("delta_c_omega", 0.0)
-                self.dynamic_model.c_v = self._c_v
-                self.dynamic_model.c_omega = self._c_omega
+                self._adapter._c_v = self._c_v
+                self._adapter._c_omega = self._c_omega
 
-        v_cmd, omega_cmd = velocity_cmd[0], velocity_cmd[1]
-        v_cur, omega_cur = self.state_5d[3], self.state_5d[4]
-
-        # PD control: 가속도 = 게인 * (목표 - 현재)
-        a = self.k_v * (v_cmd - v_cur)
-        alpha = self.k_omega * (omega_cmd - omega_cur)
-
-        accel_cmd = np.array([a, alpha])
-        next_state = self.dynamic_model.step(self.state_5d, accel_cmd, dt)
+        next_state = self._adapter.step(self.state_5d, velocity_cmd, dt)
 
         # 외란 힘 적용 (additive)
         if self.disturbance is not None:
@@ -518,7 +515,7 @@ def collect_data(args):
         dyn_world = DynamicWorld(**DYNAMIC_WORLD_PARAMS)
 
     # 데이터 수집: 노이즈 OFF로 깨끗한 데이터 확보
-    trajectories = ["circle", "figure8", "sine", "straight"]
+    trajectories = ["circle", "figure8", "sine", "slalom", "straight"]
     episodes_per_traj = 5
     episode_duration = 20.0  # seconds
 
@@ -1063,6 +1060,269 @@ def run_with_dynamic_world_maml_5d(maml_model_5d, world, params_5d,
     return history
 
 
+# ==================== EKF / L1 / ALPaCA 시뮬 루프 ====================
+
+def run_with_dynamic_world_ekf(world, params_5d, trajectory_fn, duration, seed,
+                                c_v_init=0.1, c_omega_init=0.1):
+    """
+    EKF 적응 컨트롤러 시뮬 루프 — 1-Phase (warmup 불필요).
+
+    EKF가 매 스텝 파라미터를 추정하므로 즉시 적응 가능.
+    DynamicKinematicAdapter를 내부 모델로 사용, 추정된 c_v/c_omega로 갱신.
+    """
+    np.random.seed(seed)
+
+    ekf_model = EKFAdaptiveDynamics(
+        c_v_init=c_v_init, c_omega_init=c_omega_init,
+        k_v=5.0, k_omega=5.0,
+    )
+    cost_fn_5d = create_5d_angle_aware_cost(params_5d)
+    controller = MPPIController(ekf_model, params_5d, cost_function=cost_fn_5d)
+
+    state_3d = trajectory_fn(0.0)[:3].copy()
+    world.reset(state_3d)
+    state = np.array([*state_3d, 0.0, 0.0])  # 5D
+
+    t = 0.0
+    dt = params_5d.dt
+    num_steps = int(duration / dt)
+
+    history = {
+        "time": [], "state": [], "control": [],
+        "reference": [], "solve_time": [],
+    }
+
+    prev_state = state.copy()
+    prev_control = np.zeros(2)
+
+    for step_i in range(num_steps):
+        ref_3d = generate_reference_trajectory(trajectory_fn, t, params_5d.N, dt)
+        ref_5d = make_5d_reference(ref_3d)
+
+        t_start = time.time()
+        control, info = controller.compute_control(state, ref_5d)
+        solve_time = time.time() - t_start
+
+        history["time"].append(t)
+        history["state"].append(state[:3].copy())
+        history["control"].append(control.copy())
+        history["reference"].append(ref_3d[0].copy())
+        history["solve_time"].append(solve_time)
+
+        obs_3d = world.step(control, dt, add_noise=True)
+        next_state_5d = world.get_full_state()
+
+        # EKF 업데이트 (매 스텝)
+        if step_i > 0:
+            ekf_model.update_step(prev_state, prev_control, state, dt)
+
+        prev_state = state.copy()
+        prev_control = control.copy()
+        state = next_state_5d
+        t += dt
+
+    for key in history:
+        history[key] = np.array(history[key])
+    return history
+
+
+def run_with_dynamic_world_l1(world, params_5d, trajectory_fn, duration, seed,
+                               c_v_nom=0.1, c_omega_nom=0.1):
+    """
+    L1 적응 컨트롤러 시뮬 루프 — 1-Phase (warmup 불필요).
+
+    L1이 매 스텝 외란을 추정하여 forward_dynamics에 보정 적용.
+    """
+    np.random.seed(seed)
+
+    l1_model = L1AdaptiveDynamics(
+        c_v_nom=c_v_nom, c_omega_nom=c_omega_nom,
+        k_v=5.0, k_omega=5.0,
+    )
+    cost_fn_5d = create_5d_angle_aware_cost(params_5d)
+    controller = MPPIController(l1_model, params_5d, cost_function=cost_fn_5d)
+
+    state_3d = trajectory_fn(0.0)[:3].copy()
+    world.reset(state_3d)
+    state = np.array([*state_3d, 0.0, 0.0])  # 5D
+
+    t = 0.0
+    dt = params_5d.dt
+    num_steps = int(duration / dt)
+
+    history = {
+        "time": [], "state": [], "control": [],
+        "reference": [], "solve_time": [],
+    }
+
+    prev_state = state.copy()
+    prev_control = np.zeros(2)
+
+    for step_i in range(num_steps):
+        ref_3d = generate_reference_trajectory(trajectory_fn, t, params_5d.N, dt)
+        ref_5d = make_5d_reference(ref_3d)
+
+        t_start = time.time()
+        control, info = controller.compute_control(state, ref_5d)
+        solve_time = time.time() - t_start
+
+        history["time"].append(t)
+        history["state"].append(state[:3].copy())
+        history["control"].append(control.copy())
+        history["reference"].append(ref_3d[0].copy())
+        history["solve_time"].append(solve_time)
+
+        obs_3d = world.step(control, dt, add_noise=True)
+        next_state_5d = world.get_full_state()
+
+        # L1 업데이트 (매 스텝)
+        if step_i > 0:
+            l1_model.update_step(prev_state, prev_control, state, dt)
+
+        prev_state = state.copy()
+        prev_control = control.copy()
+        state = next_state_5d
+        t += dt
+
+    for key in history:
+        history[key] = np.array(history[key])
+    return history
+
+
+def run_with_dynamic_world_alpaca(alpaca_model, world, params_5d,
+                                   trajectory_fn, duration, seed,
+                                   warmup_steps=10, adapt_interval=20,
+                                   buffer_size=50):
+    """
+    ALPaCA 컨트롤러 시뮬 루프 — 2-Phase (MAML-5D 패턴).
+
+    Phase 1: DynamicKinematicAdapter(wrong params)로 warmup + 데이터 수집
+    Phase 2: ResidualDynamics(DynamicKinematicAdapter + ALPaCA)로 전환,
+             주기적 closed-form Bayesian 적응
+    """
+    from collections import deque
+
+    np.random.seed(seed)
+
+    base_5d = DynamicKinematicAdapter(c_v=0.1, c_omega=0.1, k_v=5.0, k_omega=5.0)
+    cost_fn_5d = create_5d_angle_aware_cost(params_5d)
+
+    # Phase 1: adapter 컨트롤러
+    adapter_controller = MPPIController(base_5d, params_5d, cost_function=cost_fn_5d)
+
+    # Phase 2: Residual(adapter + ALPaCA)
+    residual_model = ResidualDynamics(
+        base_model=base_5d,
+        learned_model=alpaca_model,
+        use_residual=True,
+    )
+    alpaca_controller = MPPIController(residual_model, params_5d, cost_function=cost_fn_5d)
+
+    state_3d = trajectory_fn(0.0)[:3].copy()
+    world.reset(state_3d)
+    state = np.array([*state_3d, 0.0, 0.0])
+
+    t = 0.0
+    dt = params_5d.dt
+    num_steps = int(duration / dt)
+
+    history = {
+        "time": [], "state": [], "control": [],
+        "reference": [], "solve_time": [],
+    }
+
+    buffer_states = deque(maxlen=buffer_size)
+    buffer_controls = deque(maxlen=buffer_size)
+    buffer_next = deque(maxlen=buffer_size)
+    adapted = False
+
+    for step_i in range(num_steps):
+        ref_3d = generate_reference_trajectory(trajectory_fn, t, params_5d.N, dt)
+        ref_5d = make_5d_reference(ref_3d)
+
+        t_start = time.time()
+        if not adapted:
+            control, info = adapter_controller.compute_control(state, ref_5d)
+        else:
+            control, info = alpaca_controller.compute_control(state, ref_5d)
+        solve_time = time.time() - t_start
+
+        history["time"].append(t)
+        history["state"].append(state[:3].copy())
+        history["control"].append(control.copy())
+        history["reference"].append(ref_3d[0].copy())
+        history["solve_time"].append(solve_time)
+
+        obs_3d = world.step(control, dt, add_noise=True)
+        next_state_5d = world.get_full_state()
+
+        buffer_states.append(state.copy())
+        buffer_controls.append(control.copy())
+        buffer_next.append(next_state_5d.copy())
+
+        def _adapt_alpaca_residual():
+            buf_s = np.array(buffer_states)
+            buf_c = np.array(buffer_controls)
+            buf_n = np.array(buffer_next)
+            kin_dots = base_5d.forward_dynamics(buf_s, buf_c)
+            kin_next = buf_s + kin_dots * dt
+            residual_target = buf_s + (buf_n - kin_next)
+            alpaca_model.adapt(buf_s, buf_c, residual_target, dt, restore=True)
+
+        if not adapted and step_i >= warmup_steps:
+            _adapt_alpaca_residual()
+            alpaca_controller.reset()
+            adapted = True
+        elif adapted and step_i % adapt_interval == 0:
+            _adapt_alpaca_residual()
+
+        state = next_state_5d
+        t += dt
+
+    for key in history:
+        history[key] = np.array(history[key])
+    return history
+
+
+# ==================== ALPaCA 메타 학습 ====================
+
+def meta_train_alpaca(args):
+    """ALPaCA 메타 학습 (5D residual)."""
+    print("\n" + "=" * 80)
+    print("Stage 2d: ALPaCA Meta-Training (5D Residual)".center(80))
+    print("=" * 80)
+
+    base_5d = DynamicKinematicAdapter(c_v=0.1, c_omega=0.1, k_v=5.0, k_omega=5.0)
+    dt = 0.05
+
+    trainer = ALPaCATrainer(
+        state_dim=5, control_dim=2,
+        hidden_dims=[128, 128],
+        feature_dim=64,
+        meta_lr=1e-3,
+        task_batch_size=8,
+        support_size=100,
+        query_size=100,
+        device="cpu",
+        save_dir=MODEL_DIR,
+    )
+
+    # Residual meta-training: override data gen
+    original_gen = trainer._generate_task_data_5d
+
+    def residual_gen(task_params, n_samples):
+        states, controls, next_states = original_gen(task_params, n_samples)
+        base_dots = base_5d.forward_dynamics(states, controls)
+        base_next = states + base_dots * dt
+        residual_next = states + (next_states - base_next)
+        return states, controls, residual_next
+
+    trainer._generate_task_data_5d = residual_gen
+
+    trainer.meta_train(n_iterations=1000, verbose=True)
+    trainer.save_meta_model(DYNAMIC_ALPACA_MODEL_FILE)
+
+
 # ==================== Stage 3: 평가 ====================
 
 def _make_disturbance(args):
@@ -1095,7 +1355,7 @@ def evaluate(args):
     noise_val = getattr(args, "noise", 0.0)
     dist_type = getattr(args, "disturbance", "combined")
 
-    n_controllers = 7 if use_dynamic else 4
+    n_controllers = 10 if use_dynamic else 4
     print("\n" + "=" * 80)
     print(f"Stage 3: Evaluation ({n_controllers}-Way Comparison, {world_type})".center(80))
     print("=" * 80)
@@ -1222,8 +1482,43 @@ def evaluate(args):
         else:
             print(f"  [6/{n_controllers}] MAML-5D — SKIPPED (no 5D meta model, run --meta-train-5d)")
 
-        # 7. Oracle (5D, 정확한 파라미터)
-        print(f"  [7/{n_controllers}] Oracle (5D, exact params: c_v=0.5)...")
+        # 7. EKF (5D, 파라미터 추정)
+        print(f"  [7/{n_controllers}] EKF (Parameter Estimation, 5D)...")
+        world_ekf = _make_dynamic_world(args, disturbance_factory())
+        all_histories["EKF"] = run_with_dynamic_world_ekf(
+            world_ekf, params_5d, trajectory_fn, args.duration, args.seed,
+        )
+        all_metrics["EKF"] = compute_metrics(all_histories["EKF"])
+        print(f"        RMSE: {all_metrics['EKF']['position_rmse']:.4f}m")
+
+        # 8. L1 (5D, 외란 추정)
+        print(f"  [8/{n_controllers}] L1 (Disturbance Estimation, 5D)...")
+        world_l1 = _make_dynamic_world(args, disturbance_factory())
+        all_histories["L1"] = run_with_dynamic_world_l1(
+            world_l1, params_5d, trajectory_fn, args.duration, args.seed,
+        )
+        all_metrics["L1"] = compute_metrics(all_histories["L1"])
+        print(f"        RMSE: {all_metrics['L1']['position_rmse']:.4f}m")
+
+        # 9. ALPaCA (5D, Bayesian 적응)
+        alpaca_path = os.path.join(MODEL_DIR, DYNAMIC_ALPACA_MODEL_FILE)
+        if os.path.exists(alpaca_path):
+            print(f"  [9/{n_controllers}] ALPaCA (Bayesian Adaptive, 5D)...")
+            alpaca_model = ALPaCADynamics(
+                state_dim=5, control_dim=2, model_path=alpaca_path,
+            )
+            world_alpaca = _make_dynamic_world(args, disturbance_factory())
+            all_histories["ALPaCA"] = run_with_dynamic_world_alpaca(
+                alpaca_model, world_alpaca, params_5d,
+                trajectory_fn, args.duration, args.seed,
+            )
+            all_metrics["ALPaCA"] = compute_metrics(all_histories["ALPaCA"])
+            print(f"        RMSE: {all_metrics['ALPaCA']['position_rmse']:.4f}m")
+        else:
+            print(f"  [9/{n_controllers}] ALPaCA — SKIPPED (no meta model, run --meta-train-alpaca)")
+
+        # 10. Oracle (5D, 정확한 파라미터)
+        print(f"  [10/{n_controllers}] Oracle (5D, exact params: c_v=0.5)...")
         oracle_model = DynamicKinematicAdapter(
             c_v=DYNAMIC_WORLD_PARAMS["c_v"],
             c_omega=DYNAMIC_WORLD_PARAMS["c_omega"],
@@ -1243,6 +1538,10 @@ def evaluate(args):
             label_order.append("MAML")
         if "MAML-5D" in all_histories:
             label_order.append("MAML-5D")
+        label_order.append("EKF")
+        label_order.append("L1")
+        if "ALPaCA" in all_histories:
+            label_order.append("ALPaCA")
         label_order.append("Oracle")
 
     else:
@@ -1310,9 +1609,9 @@ def evaluate(args):
 
     if use_dynamic:
         if noise_val > 0:
-            print(f"\n  Expected (noise={noise_val:.1f}): MAML-5D ~ MAML < Oracle < Dynamic < Kinematic")
+            print(f"\n  Expected (noise={noise_val:.1f}): MAML-5D ~ L1 ~ ALPaCA < EKF ~ Dynamic < Kinematic")
         else:
-            print("\n  Expected: Oracle < MAML ~ Dynamic < Kinematic < Residual << Neural")
+            print("\n  Expected: Oracle < MAML-5D ~ EKF < Dynamic < Kinematic")
     else:
         print("\n  Expected: Oracle < Residual <= Neural << Kinematic")
 
@@ -1331,9 +1630,24 @@ COLORS = {
     "Dynamic": "#e67e22",      # orange
     "MAML": "#00bcd4",         # cyan
     "MAML-5D": "#ff6f00",      # amber
+    "EKF": "#43a047",          # dark green
+    "L1": "#d81b60",           # pink
+    "ALPaCA": "#8e24aa",       # purple-violet
     "Oracle": "#9b59b6",       # purple
     "Reference": "#7f8c8d",    # gray
 }
+
+
+def _detect_outliers(label_order, all_metrics, threshold=5.0):
+    """RMSE가 중앙값의 threshold배 이상인 메소드를 outlier로 판정."""
+    rmses = {n: all_metrics[n]["position_rmse"] for n in label_order}
+    values = list(rmses.values())
+    if len(values) < 3:
+        return set()
+    median = np.median(values)
+    if median < 1e-6:
+        return set()
+    return {name for name, v in rmses.items() if v > median * threshold}
 
 
 def visualize_general(args, params, label_order, all_histories, all_metrics, world_type):
@@ -1376,29 +1690,59 @@ def visualize_general(args, params, label_order, all_histories, all_metrics, wor
     ax.grid(True, alpha=0.3)
     ax.axis("equal")
 
-    # 2. 위치 오차 시계열
+    # 2. 위치 오차 시계열 (outlier auto-clip)
     ax = axes[0, 1]
+    outliers = _detect_outliers(label_order, all_metrics)
+    all_errors = {}
     for name in label_order:
         hist = all_histories[name]
         states = hist["state"]
         ref = hist["reference"]
         errors = np.linalg.norm(states[:, :2] - ref[:, :2], axis=1)
-        ax.plot(hist["time"], errors, "-", color=COLORS[name], label=name, linewidth=2)
+        all_errors[name] = errors
+        is_outlier = name in outliers
+        rmse = all_metrics[name]["position_rmse"]
+        lbl = f"{name} ({rmse:.2f}m)" if is_outlier else name
+        ax.plot(hist["time"], errors, "-", color=COLORS[name], label=lbl,
+                linewidth=2, alpha=0.3 if is_outlier else 1.0,
+                linestyle=":" if is_outlier else "-")
+    if outliers:
+        non_outlier_max = max(
+            all_errors[n].max() for n in label_order if n not in outliers
+        ) if any(n not in outliers for n in label_order) else None
+        if non_outlier_max is not None:
+            ax.set_ylim(top=non_outlier_max * 1.3)
+            ax.text(0.98, 0.97, r"$\uparrow$ outliers clipped",
+                    transform=ax.transAxes, ha="right", va="top",
+                    fontsize=8, color="gray", style="italic")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Position Error (m)")
     ax.set_title("Position Tracking Error")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
 
-    # 3. RMSE 바 차트
+    # 3. RMSE 바 차트 (outlier auto-clip)
     ax = axes[0, 2]
     rmses = [all_metrics[n]["position_rmse"] for n in label_order]
     bar_colors = [COLORS[n] for n in label_order]
-    bars = ax.bar(label_order, rmses, color=bar_colors, alpha=0.8)
-    for bar, rmse in zip(bars, rmses):
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width() / 2.0, height,
-                f"{rmse:.4f}m", ha="center", va="bottom", fontsize=9)
+    non_outlier_rmses = [r for n, r in zip(label_order, rmses) if n not in outliers]
+    y_max = max(non_outlier_rmses) * 1.5 if (outliers and non_outlier_rmses) else None
+    display_rmses = [min(r, y_max) if (y_max and n in outliers) else r
+                     for n, r in zip(label_order, rmses)]
+    hatches = ["///" if n in outliers else "" for n in label_order]
+    bars = ax.bar(label_order, display_rmses, color=bar_colors, alpha=0.8)
+    for bar, hatch in zip(bars, hatches):
+        bar.set_hatch(hatch)
+    for bar, rmse, name in zip(bars, rmses, label_order):
+        if name in outliers:
+            ax.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height(),
+                    f"\u2191{rmse:.2f}m", ha="center", va="bottom", fontsize=9,
+                    fontweight="bold", color="red")
+        else:
+            ax.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height(),
+                    f"{rmse:.4f}m", ha="center", va="bottom", fontsize=9)
+    if y_max:
+        ax.set_ylim(top=y_max)
     ax.set_ylabel("Position RMSE (m)")
     ax.set_title("RMSE Comparison")
     ax.grid(True, axis="y", alpha=0.3)
@@ -1508,7 +1852,7 @@ def run_live_comparison(args):
 
     world_type = getattr(args, "world", "perturbed")
     use_dynamic = (world_type == "dynamic")
-    n_way = 7 if use_dynamic else 4
+    n_way = 10 if use_dynamic else 4
 
     print("\n" + "=" * 80)
     print(f"Live Comparison ({n_way}-Way, {world_type}, Real-Time)".center(80))
@@ -1635,6 +1979,50 @@ def run_live_comparison(args):
             is_5d_map["MAML-5D"] = True
             params_map["MAML-5D"] = params_5d
 
+        # EKF (5D, 파라미터 추정 — 1-Phase)
+        ekf_model_live = EKFAdaptiveDynamics(
+            c_v_init=0.1, c_omega_init=0.1, k_v=5.0, k_omega=5.0,
+        )
+        controllers["EKF"] = MPPIController(ekf_model_live, params_5d, cost_function=cost_fn_5d)
+        is_5d_map["EKF"] = True
+        params_map["EKF"] = params_5d
+
+        # L1 (5D, 외란 추정 — 1-Phase)
+        l1_model_live = L1AdaptiveDynamics(
+            c_v_nom=0.1, c_omega_nom=0.1, k_v=5.0, k_omega=5.0,
+        )
+        controllers["L1"] = MPPIController(l1_model_live, params_5d, cost_function=cost_fn_5d)
+        is_5d_map["L1"] = True
+        params_map["L1"] = params_5d
+
+        # ALPaCA (5D, Bayesian — 2-Phase)
+        alpaca_path = os.path.join(MODEL_DIR, DYNAMIC_ALPACA_MODEL_FILE)
+        alpaca_model_live = None
+        alpaca_residual_controller = None
+        alpaca_adapter_controller = None
+        if not os.path.exists(alpaca_path):
+            print(f"\n  ALPaCA meta model not found — auto-running meta-train-alpaca...")
+            meta_train_alpaca(args)
+        if os.path.exists(alpaca_path):
+            alpaca_model_live = ALPaCADynamics(
+                state_dim=5, control_dim=2, model_path=alpaca_path,
+            )
+            alpaca_base_5d = DynamicKinematicAdapter(c_v=0.1, c_omega=0.1, k_v=5.0, k_omega=5.0)
+            alpaca_adapter_controller = MPPIController(
+                alpaca_base_5d, params_5d, cost_function=cost_fn_5d,
+            )
+            alpaca_residual_model = ResidualDynamics(
+                base_model=alpaca_base_5d,
+                learned_model=alpaca_model_live,
+                use_residual=True,
+            )
+            alpaca_residual_controller = MPPIController(
+                alpaca_residual_model, params_5d, cost_function=cost_fn_5d,
+            )
+            controllers["ALPaCA"] = alpaca_adapter_controller
+            is_5d_map["ALPaCA"] = True
+            params_map["ALPaCA"] = params_5d
+
         oracle_model = DynamicKinematicAdapter(
             c_v=DYNAMIC_WORLD_PARAMS["c_v"],
             c_omega=DYNAMIC_WORLD_PARAMS["c_omega"],
@@ -1691,6 +2079,21 @@ def run_live_comparison(args):
     maml_5d_adapted = [False]
     maml_5d_base = DynamicKinematicAdapter(c_v=0.1, c_omega=0.1, k_v=5.0, k_omega=5.0)
     maml_5d_recent_errors = deque(maxlen=5)
+
+    # EKF / L1 previous state tracking
+    ekf_prev_state = [None]
+    ekf_prev_control = [None]
+    l1_prev_state = [None]
+    l1_prev_control = [None]
+
+    # ALPaCA adaptation buffers
+    alpaca_buffer_states = deque(maxlen=50)
+    alpaca_buffer_controls = deque(maxlen=50)
+    alpaca_buffer_next = deque(maxlen=50)
+    alpaca_warmup_steps = 10
+    alpaca_adapt_interval = 20
+    alpaca_adapted = [False]
+    alpaca_base_5d_live = DynamicKinematicAdapter(c_v=0.1, c_omega=0.1, k_v=5.0, k_omega=5.0)
 
     data = {
         n: {"xy": [], "times": [], "errors": [], "controls_v": [], "solve_times": []}
@@ -1830,6 +2233,28 @@ def run_live_comparison(args):
                         residual_target = buf_s + (buf_n - kin_next)
                         maml_model_5d_live.adapt(buf_s, buf_c, residual_target, dt, restore=True, temporal_decay=0.95)
 
+            # ALPaCA: 2-Phase Bayesian 적응
+            if name == "ALPaCA" and alpaca_model_live is not None:
+                if not alpaca_adapted[0] and frame >= alpaca_warmup_steps and len(alpaca_buffer_states) >= alpaca_warmup_steps:
+                    buf_s = np.array(alpaca_buffer_states)
+                    buf_c = np.array(alpaca_buffer_controls)
+                    buf_n = np.array(alpaca_buffer_next)
+                    kin_dots = alpaca_base_5d_live.forward_dynamics(buf_s, buf_c)
+                    kin_next = buf_s + kin_dots * dt
+                    residual_target = buf_s + (buf_n - kin_next)
+                    alpaca_model_live.adapt(buf_s, buf_c, residual_target, dt, restore=True)
+                    controllers["ALPaCA"] = alpaca_residual_controller
+                    alpaca_residual_controller.reset()
+                    alpaca_adapted[0] = True
+                elif alpaca_adapted[0] and frame % alpaca_adapt_interval == 0:
+                    buf_s = np.array(alpaca_buffer_states)
+                    buf_c = np.array(alpaca_buffer_controls)
+                    buf_n = np.array(alpaca_buffer_next)
+                    kin_dots = alpaca_base_5d_live.forward_dynamics(buf_s, buf_c)
+                    kin_next = buf_s + kin_dots * dt
+                    residual_target = buf_s + (buf_n - kin_next)
+                    alpaca_model_live.adapt(buf_s, buf_c, residual_target, dt, restore=True)
+
             t_start = time.time()
             control, info = controllers[name].compute_control(states[name], ref)
             solve_time = time.time() - t_start
@@ -1867,6 +2292,30 @@ def run_live_comparison(args):
                     maml_5d_buffer_controls.append(control.copy())
                     maml_5d_buffer_next.append(worlds[name].get_full_state().copy())
                     maml_5d_recent_errors.append(error)
+
+                # EKF: 매 스텝 업데이트
+                if name == "EKF" and ekf_prev_state[0] is not None:
+                    ekf_model_live.update_step(
+                        ekf_prev_state[0], ekf_prev_control[0], prev_state, dt
+                    )
+                if name == "EKF":
+                    ekf_prev_state[0] = prev_state.copy()
+                    ekf_prev_control[0] = control.copy()
+
+                # L1: 매 스텝 업데이트
+                if name == "L1" and l1_prev_state[0] is not None:
+                    l1_model_live.update_step(
+                        l1_prev_state[0], l1_prev_control[0], prev_state, dt
+                    )
+                if name == "L1":
+                    l1_prev_state[0] = prev_state.copy()
+                    l1_prev_control[0] = control.copy()
+
+                # ALPaCA: 5D 전이 데이터 버퍼에 기록
+                if name == "ALPaCA" and alpaca_model_live is not None:
+                    alpaca_buffer_states.append(prev_state.copy())
+                    alpaca_buffer_controls.append(control.copy())
+                    alpaca_buffer_next.append(worlds[name].get_full_state().copy())
             else:
                 next_state = perturbed_step(states[name], control, base_model, dt, add_noise=True)
                 states[name] = next_state
@@ -1910,14 +2359,36 @@ def run_live_comparison(args):
                     bar_names.append(name)
                     bar_colors.append(COLORS[name])
             if rmses:
-                bars = ax_bar.bar(bar_names, rmses, color=bar_colors, alpha=0.8)
-                for bar, rmse in zip(bars, rmses):
-                    ax_bar.text(
-                        bar.get_x() + bar.get_width() / 2.0,
-                        bar.get_height(),
-                        f"{rmse:.4f}",
-                        ha="center", va="bottom", fontsize=9,
-                    )
+                # Outlier auto-clip for live bar chart
+                live_median = float(np.median(rmses))
+                live_outlier_threshold = live_median * 5.0 if live_median > 1e-6 else None
+                live_outlier_set = set()
+                if live_outlier_threshold and len(rmses) >= 3:
+                    live_outlier_set = {n for n, r in zip(bar_names, rmses) if r > live_outlier_threshold}
+                non_outlier_rmses_live = [r for n, r in zip(bar_names, rmses) if n not in live_outlier_set]
+                y_max_live = max(non_outlier_rmses_live) * 1.5 if (live_outlier_set and non_outlier_rmses_live) else None
+                display_rmses_live = [min(r, y_max_live) if (y_max_live and n in live_outlier_set) else r
+                                      for n, r in zip(bar_names, rmses)]
+                bars = ax_bar.bar(bar_names, display_rmses_live, color=bar_colors, alpha=0.8)
+                for bar, rmse, bname in zip(bars, rmses, bar_names):
+                    if bname in live_outlier_set:
+                        bar.set_hatch("///")
+                        ax_bar.text(
+                            bar.get_x() + bar.get_width() / 2.0,
+                            bar.get_height(),
+                            f"\u2191{rmse:.2f}",
+                            ha="center", va="bottom", fontsize=9,
+                            fontweight="bold", color="red",
+                        )
+                    else:
+                        ax_bar.text(
+                            bar.get_x() + bar.get_width() / 2.0,
+                            bar.get_height(),
+                            f"{rmse:.4f}",
+                            ha="center", va="bottom", fontsize=9,
+                        )
+                if y_max_live:
+                    ax_bar.set_ylim(top=y_max_live)
 
         time_text.set_text(f"t = {t_current:.1f}s / {args.duration:.0f}s")
         return []
@@ -1952,6 +2423,7 @@ Examples:
     parser.add_argument("--evaluate", action="store_true", help="Stage 3: Run evaluation")
     parser.add_argument("--meta-train", action="store_true", help="Stage 2b: MAML 3D meta-training (dynamic world only)")
     parser.add_argument("--meta-train-5d", action="store_true", help="Stage 2c: MAML 5D meta-training (dynamic world only)")
+    parser.add_argument("--meta-train-alpaca", action="store_true", help="Stage 2d: ALPaCA meta-training (dynamic world only)")
     parser.add_argument("--meta-algo", type=str, default="fomaml", choices=["fomaml", "reptile"],
                         help="Meta-learning algorithm (default: fomaml)")
     parser.add_argument("--live", action="store_true", help="Live real-time comparison visualization")
@@ -1963,7 +2435,7 @@ Examples:
     )
     parser.add_argument(
         "--trajectory", type=str, default="circle",
-        choices=["circle", "figure8", "sine", "straight"],
+        choices=["circle", "figure8", "sine", "slalom", "straight"],
         help="Reference trajectory type (default: circle)",
     )
     parser.add_argument("--duration", type=float, default=20.0, help="Evaluation duration in seconds (default: 20)")
@@ -1984,19 +2456,20 @@ Examples:
         if args.world == "dynamic":
             args.meta_train = True
             args.meta_train_5d = True
+            args.meta_train_alpaca = True
 
     # 아무 옵션도 없으면 도움말 출력
-    if not (args.collect_data or args.train or args.evaluate or args.live or args.meta_train or args.meta_train_5d):
+    if not (args.collect_data or args.train or args.evaluate or args.live or args.meta_train or args.meta_train_5d or args.meta_train_alpaca):
         parser.print_help()
         return
 
-    n_way = 7 if args.world == "dynamic" else 4
+    n_way = 10 if args.world == "dynamic" else 4
     print("\n" + "#" * 80)
     print("#" + f"Model Mismatch Comparison Demo ({n_way}-Way, {args.world})".center(78) + "#")
     print("#" * 80)
     if args.world == "dynamic":
         print(f"\n  Dynamic world: DifferentialDriveDynamic (5D, inertia+friction)")
-        print(f"  7-way comparison: Kinematic / Neural / Residual / Dynamic / MAML / MAML-5D / Oracle")
+        print(f"  10-way: Kinematic / Neural / Residual / Dynamic / MAML / MAML-5D / EKF / L1 / ALPaCA / Oracle")
     else:
         print(f"\n  Perturbed world: kinematic + friction, bias, noise")
         print(f"  4-way comparison: Kinematic / Neural / Residual / Oracle")
@@ -2013,6 +2486,9 @@ Examples:
 
     if args.meta_train_5d:
         meta_train_maml_5d(args)
+
+    if args.meta_train_alpaca:
+        meta_train_alpaca(args)
 
     if args.evaluate:
         evaluate(args)

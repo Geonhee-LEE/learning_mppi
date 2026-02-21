@@ -4,21 +4,22 @@
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  Phase 1~4 + Safety + GPU + MAML + 외란 시뮬레이션 완료! ✓  │
+│  Phase 1~4 + Safety + GPU + MAML + Post-MAML 완료! ✓       │
 ├────────────────────────────────────────────────────────────┤
 │  ✓ Phase 1: 기구학 모델 및 Vanilla MPPI                   │
 │  ✓ Phase 2: 동역학 모델 (마찰/관성)                       │
 │  ✓ Phase 3: MPPI 변형 9종 + 8 Safety-Critical Control     │
-│  ✓ Phase 4: 학습 모델 6종 (Neural/GP/Residual/Ensemble/   │
-│             MC-Dropout/MAML) + 온라인 학습                 │
+│  ✓ Phase 4: 학습 모델 9종 (Neural/GP/Residual/Ensemble/   │
+│             MC-Dropout/MAML/EKF/L1/ALPaCA) + 온라인 학습   │
 │  ✓ GPU 가속: RTX 5080 K=8192→8.1x speedup                │
 │  ✓ 로봇 모델: DiffDrive/Ackermann/Swerve (Kin+Dyn)       │
 │  ✓ MAML 메타 학습: MAML-5D RMSE 0.055m (noise=0.7)       │
+│  ✓ Post-MAML 적응: EKF/L1/ALPaCA 10-Way 비교             │
 │  ✓ 외란 시뮬레이션: Wind/Terrain/Sine/Combined            │
 │  ✓ Reptile 메타 학습 + Residual Meta-Training             │
 │  ✓ 시뮬레이션: 10개 환경 시나리오                         │
 │                                                            │
-│  426 tests (34 files), ~24,000+ lines                      │
+│  484 tests (37 files), ~27,000+ lines                      │
 ├────────────────────────────────────────────────────────────┤
 │  → 다음: ROS2 통합 (M4) 또는 C++ 포팅                     │
 └────────────────────────────────────────────────────────────┘

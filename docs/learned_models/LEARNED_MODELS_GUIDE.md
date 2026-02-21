@@ -17,7 +17,7 @@
 
 ## 개요
 
-MPPI ROS2는 **6가지 학습 기반 동역학 모델**을 지원합니다:
+MPPI ROS2는 **9가지 학습/적응 기반 동역학 모델**을 지원합니다:
 
 1. **Neural Dynamics**: 심층 신경망 기반 end-to-end 학습
 2. **Gaussian Process Dynamics**: 베이지안 비모수 모델, 불확실성 정량화
@@ -25,17 +25,21 @@ MPPI ROS2는 **6가지 학습 기반 동역학 모델**을 지원합니다:
 4. **Ensemble Neural Dynamics**: M개 MLP 앙상블, 분산 기반 불확실성
 5. **MC-Dropout Dynamics**: 추론 시 dropout으로 베이지안 근사
 6. **MAML Dynamics**: 메타 학습 기반 few-shot 실시간 적응
+7. **EKF Adaptive Dynamics**: 확장 칼만 필터 기반 파라미터 실시간 추정
+8. **L1 Adaptive Dynamics**: L1 적응 제어 기반 외란 추정+보상
+9. **ALPaCA Dynamics**: Bayesian last-layer 기반 closed-form 적응
 
 ### 핵심 특징
 
 - **통일된 인터페이스**: 모든 학습 모델이 `RobotModel` 베이스 클래스 구현
 - **MPPI 호환성**: 기구학/동역학 모델과 동일한 방식으로 사용 가능
 - **온라인 학습**: 실시간 데이터 수집 및 모델 업데이트 (체크포인트 버전 관리 포함)
-- **불확실성 정량화**: GP / 앙상블 / MC-Dropout 기반 불확실성 추정
+- **불확실성 정량화**: GP / 앙상블 / MC-Dropout / ALPaCA 기반 불확실성 추정
 - **불확실성 인식 비용**: `UncertaintyAwareCost`로 Risk-Aware MPPI 연동
 - **모델 검증**: `ModelValidator`로 RMSE/MAE/R² 통합 평가
 - **Sim-to-Real 전이**: 도메인 적응 지원
-- **메타 학습**: MAML 기반 few-shot 실시간 적응 ([META_LEARNING.md](./META_LEARNING.md) 참조)
+- **메타 학습**: MAML / ALPaCA 기반 few-shot 실시간 적응 ([META_LEARNING.md](./META_LEARNING.md) 참조)
+- **적응 제어**: EKF / L1 기반 학습 없는 실시간 적응
 - **GPU 가속**: `TorchNeuralDynamics`로 MPPI 루프 내 GPU 추론
 
 ---
@@ -214,6 +218,125 @@ maml.save_meta_weights()
 # 잔차 적응 후 ResidualDynamics로 사용
 maml.adapt(states, controls, residual_targets, dt=0.05, restore=True)
 residual_model = ResidualDynamics(base_model=kinematic, learned_model=maml, use_residual=True)
+```
+
+자세한 내용은 [META_LEARNING.md](./META_LEARNING.md)를 참조하세요.
+
+### 7. EKF Adaptive Dynamics
+
+**특징**:
+- 확장 칼만 필터(EKF)로 물리 파라미터 (c_v, c_omega) 실시간 추정
+- 7D 확장 상태: `[x, y, θ, v, ω, ĉ_v, ĉ_ω]` (5D 관측 + 2D 파라미터)
+- DynamicKinematicAdapter를 내부 모델로 사용, 추정 파라미터로 갱신
+- **오프라인 학습 불필요** — 즉시 동작
+
+**장점**:
+- 학습 데이터 불필요 (메타 학습/사전 학습 없음)
+- 파라미터 물리적 의미 유지 (해석 가능)
+- 추정 불확실성 정량화 (공분산 행렬)
+- 파라미터 불일치에 매우 강함
+
+**단점**:
+- 비모델링 외란 (wind, sine)에는 적응 제한
+- 해석적 야코비안 필요 (새 모델마다 유도)
+- 파라미터 수에 비례하여 상태 차원 증가
+
+**사용 사례**:
+- 마찰/관성 변화가 주된 모델 불확실성
+- 학습 인프라 없이 빠른 배포 필요
+- 파라미터 모니터링이 중요한 진단 응용
+
+```python
+from mppi_controller.models.learned.ekf_dynamics import EKFAdaptiveDynamics
+
+model = EKFAdaptiveDynamics(state_dim=5, control_dim=2)
+
+# 매 타임스텝 업데이트
+model.update_step(state_5d, control, next_state_5d, dt=0.05)
+
+# 추정된 파라미터 확인
+params = model.get_parameter_estimates()
+print(f"c_v={params['c_v']:.3f}, c_omega={params['c_omega']:.3f}")
+```
+
+### 8. L1 Adaptive Dynamics
+
+**특징**:
+- L1 적응 제어: 상태 예측기 + 외란 추정 + 저역통과 필터
+- 연속 외란 σ(t)를 실시간 추정하여 모델 보정
+- Hurwitz 안정 행렬 A_m으로 예측 오차 수렴 보장
+- **오프라인 학습 불필요** — 즉시 동작
+
+**장점**:
+- 시변 외란 (wind, periodic force) 추적에 강함
+- 수학적 안정성 보장 (Hurwitz A_m)
+- 학습 데이터 불필요
+- 저역통과 필터로 고주파 노이즈 제거
+
+**단점**:
+- 파라미터 직접 추정 불가 (EKF 대비)
+- 필터 대역폭(ω_c)이 추적 성능과 노이즈 억제 간 trade-off
+- 급격한 외란 변화 시 응답 지연
+
+**사용 사례**:
+- 시간에 따라 변하는 외란이 주된 불확실성
+- 풍하중, 경사면 등 외부 힘 보상
+- 빠른 배포 (학습 불필요)
+
+```python
+from mppi_controller.models.learned.l1_adaptive_dynamics import L1AdaptiveDynamics
+
+model = L1AdaptiveDynamics(state_dim=5, control_dim=2)
+
+# 매 타임스텝 업데이트
+model.update_step(state_5d, control, next_state_5d, dt=0.05)
+
+# forward_dynamics는 f_nom + σ_filtered 반환 (MPPI용 보정 모델)
+state_dot = model.forward_dynamics(state, control)
+```
+
+### 9. ALPaCA Dynamics
+
+**특징**:
+- 메타 학습된 feature extractor (frozen MLP) + Bayesian linear regression
+- Closed-form 적응: SGD 없이 행렬 연산으로 즉시 적응
+- 예측 불확실성 정량화 (posterior predictive variance)
+- ResidualDynamics(base + ALPaCA) 패턴으로 사용
+
+**장점**:
+- SGD 없는 closed-form 적응 (MAML보다 빠르고 안정적)
+- 불확실성 정량화 (GP와 유사한 Bayesian 예측)
+- 적응 품질이 데이터양에 단조 증가 (과적합 없음)
+- 메타 학습 후 feature extractor 고정 → 경량 적응
+
+**단점**:
+- 메타 학습 필요 (~5분)
+- Linear last layer의 표현력 한계 (highly nonlinear 잔차에 부적합)
+- MAML 대비 적응 유연성 제한
+
+**사용 사례**:
+- 빠르고 안정적인 적응이 필요한 실시간 시스템
+- 불확실성이 필요한 안전 크리티컬 응용
+- SGD 기반 적응(MAML)이 불안정한 환경
+
+```python
+from mppi_controller.models.learned.alpaca_dynamics import ALPaCADynamics
+from mppi_controller.models.learned.residual_dynamics import ResidualDynamics
+
+# 메타 학습된 모델 로드
+alpaca = ALPaCADynamics(
+    state_dim=5, control_dim=2,
+    model_path="models/learned_models/dynamic_alpaca_meta_model.pth",
+)
+
+# Closed-form 적응 (SGD 없음!)
+loss = alpaca.adapt(states, controls, next_states, dt=0.05)
+
+# 불확실성 포함 예측
+uncertainty = alpaca.get_uncertainty(state, control)
+
+# Residual 모델로 사용 (권장)
+residual_model = ResidualDynamics(base_model=adapter_5d, learned_model=alpaca, use_residual=True)
 ```
 
 자세한 내용은 [META_LEARNING.md](./META_LEARNING.md)를 참조하세요.
@@ -530,6 +653,9 @@ controller = MPPIController(model=residual_model, params=params)
 | Ensemble (M=5) | 5,000+ 샘플 | ~25분 (5x) | 0.5ms | 중간 품질 |
 | MC-Dropout (M=20) | 5,000+ 샘플 | ~5분 (1x) | 2ms | 낮은 품질 |
 | **MAML** | **40~200 (적응)** | **~5분 (메타)** | **~10ms (적응)** | **없음** |
+| **EKF** | **없음** | **없음** | **~0.1ms** | **공분산** |
+| **L1 Adaptive** | **없음** | **없음** | **~0.1ms** | **없음** |
+| **ALPaCA** | **10~50 (적응)** | **~5분 (메타)** | **~1ms (적응)** | **Bayesian** |
 
 ### 정확도 비교 (Differential Drive 예시)
 
@@ -583,6 +709,30 @@ controller = MPPIController(model=residual_model, params=params)
 - ✅ Neural/Residual 오프라인 학습으로 부족할 때
 - ❌ 환경이 고정적 (오프라인 학습 충분)
 - ❌ 메타 학습용 환경 시뮬레이션 불가
+
+#### EKF Adaptive를 선택하세요:
+- ✅ 물리 파라미터 변화가 주된 불확실성 (마찰, 관성)
+- ✅ 학습 인프라 없이 즉시 배포 필요
+- ✅ 파라미터 모니터링/진단이 중요
+- ✅ 추정 불확실성 정량화 필요 (공분산)
+- ❌ 비모델링 외란 (wind, periodic force)이 지배적
+- ❌ 파라미터 수가 많은 복잡한 모델
+
+#### L1 Adaptive를 선택하세요:
+- ✅ 시변 외란이 주된 불확실성 (풍하중, 경사면)
+- ✅ 학습 없이 즉시 배포 필요
+- ✅ 수학적 안정성 보장이 중요
+- ✅ 고주파 노이즈 제거 필요 (저역통과 필터)
+- ❌ 파라미터 정확 추정이 필요 (EKF가 적합)
+- ❌ 매우 급격한 외란 변화 (필터 지연)
+
+#### ALPaCA Dynamics를 선택하세요:
+- ✅ SGD 없는 안정적 적응이 필요 (MAML의 SGD 불안정 우려)
+- ✅ 적응 시 불확실성 정량화 필요
+- ✅ 실시간 적응 + Bayesian 예측 동시 필요
+- ✅ MAML과 동일한 메타 학습 인프라 활용 가능
+- ❌ highly nonlinear 잔차 (linear last layer 한계)
+- ❌ 메타 학습 불가 (MAML과 동일 제약)
 
 ---
 
@@ -1020,6 +1170,88 @@ class MAMLDynamics(NeuralDynamics):
         """적응된 모델로 예측 (NeuralDynamics 상속)"""
 ```
 
+### EKFAdaptiveDynamics
+
+```python
+class EKFAdaptiveDynamics(RobotModel):
+    def __init__(
+        self,
+        state_dim: int = 5,
+        control_dim: int = 2,
+        process_noise: float = 1e-4,
+        measurement_noise: float = 1e-2,
+        initial_c_v: float = 0.5,
+        initial_c_omega: float = 0.3,
+    )
+
+    def forward_dynamics(self, state, control) -> np.ndarray:
+        """추정 파라미터 기반 5D 동역학 예측"""
+
+    def update_step(self, state, control, next_state, dt) -> dict:
+        """단일 EKF 업데이트 (predict→innovate→update)
+        Returns: {'c_v': float, 'c_omega': float, 'innovation': np.ndarray}"""
+
+    def adapt(self, states, controls, next_states, dt, restore=True) -> float:
+        """배치 적응 (MAML 인터페이스 호환). Returns: MSE."""
+
+    def get_parameter_estimates(self) -> dict:
+        """{'c_v': float, 'c_omega': float, 'c_v_std': float, 'c_omega_std': float}"""
+```
+
+### L1AdaptiveDynamics
+
+```python
+class L1AdaptiveDynamics(RobotModel):
+    def __init__(
+        self,
+        state_dim: int = 5,
+        control_dim: int = 2,
+        adaptation_gain: float = 100.0,
+        filter_bandwidth: float = 10.0,
+        am_gains: np.ndarray = None,  # default: [-5,-5,-5,-10,-10]
+    )
+
+    def forward_dynamics(self, state, control) -> np.ndarray:
+        """f_nom(x,u) + σ_filtered — 외란 보정 모델"""
+
+    def update_step(self, state, control, next_state, dt) -> dict:
+        """단일 L1 업데이트 (predictor→adaptation law→filter)
+        Returns: {'sigma_raw': np.ndarray, 'sigma_filtered': np.ndarray, 'prediction_error': np.ndarray}"""
+
+    def adapt(self, states, controls, next_states, dt, restore=True) -> float:
+        """배치 적응 (MAML 인터페이스 호환). Returns: MSE."""
+
+    def is_stable(self) -> bool:
+        """A_m이 Hurwitz 안정인지 확인 (모든 고유값 실부 < 0)"""
+```
+
+### ALPaCADynamics
+
+```python
+class ALPaCADynamics(RobotModel):
+    def __init__(
+        self,
+        state_dim: int = 5,
+        control_dim: int = 2,
+        model_path: Optional[str] = None,
+        feature_dim: int = 64,
+        hidden_dims: List[int] = None,
+        device: str = "cpu",
+    )
+
+    def forward_dynamics(self, state, control) -> np.ndarray:
+        """μ_n @ φ(x,u) — posterior mean 예측"""
+
+    def adapt(self, states, controls, next_states, dt, restore=True) -> float:
+        """Closed-form Bayesian update (SGD 없음). Returns: MSE."""
+
+    def get_uncertainty(self, state, control) -> np.ndarray:
+        """(1/β)·φᵀ·Λ_n⁻¹·φ — posterior predictive variance"""
+
+    def restore_prior(self):
+        """μ₀, Λ₀로 복원 (prior 상태)"""
+```
+
 ### OnlineLearner
 
 ```python
@@ -1080,17 +1312,26 @@ python examples/learned/online_learning_demo.py \
     --plot
 ```
 
-### MAML 6-Way 비교 (Dynamic World)
+### 10-Way 적응 기법 비교 (Dynamic World)
 
 ```bash
-# 전체 파이프라인 (데이터 수집 + 학습 + 메타 학습 + 6-Way 평가)
+# 전체 파이프라인 (데이터 수집 + 학습 + 메타 학습 + 10-Way 평가)
 python examples/comparison/model_mismatch_comparison_demo.py \
     --all --world dynamic --trajectory circle --duration 20
+
+# 강한 외란 하 비교 (MAML/EKF/L1/ALPaCA 이점 강조)
+python examples/comparison/model_mismatch_comparison_demo.py \
+    --all --world dynamic --noise 0.7 --disturbance combined
 
 # 실시간 비교 (메타 모델 사전 학습 필요)
 python examples/comparison/model_mismatch_comparison_demo.py \
     --live --world dynamic --trajectory circle --duration 20
 ```
+
+10-Way 비교 대상:
+1. Kinematic (3D), 2. Neural (3D), 3. Residual (3D),
+4. Dynamic (5D), 5. MAML-3D, 6. MAML-5D,
+7. EKF (5D), 8. L1 Adaptive (5D), 9. ALPaCA (5D), 10. Oracle (5D)
 
 ---
 
@@ -1103,6 +1344,9 @@ python examples/comparison/model_mismatch_comparison_demo.py \
 - Cheng et al. (2019) - "End-to-End Safe RL with GP"
 - Finn et al. (2017) - "Model-Agnostic Meta-Learning for Fast Adaptation" (MAML)
 - Nichol et al. (2018) - "On First-Order Meta-Learning Algorithms" (FOMAML)
+- Harrison et al. (2018) - "Meta-Learning Priors for Efficient Online Bayesian Regression" (ALPaCA)
+- Hovakimyan & Cao (2010) - "L1 Adaptive Control Theory" (L1 Adaptive)
+- Ljung (1979) - "Asymptotic Behavior of the Extended Kalman Filter" (EKF)
 
 ### 라이브러리
 - PyTorch: https://pytorch.org
@@ -1140,5 +1384,5 @@ python examples/comparison/model_mismatch_comparison_demo.py \
 
 ---
 
-**마지막 업데이트**: 2026-02-18
+**마지막 업데이트**: 2026-02-21
 **작성자**: Claude Sonnet 4.5 + Claude Opus 4.6 + Geonhee LEE
