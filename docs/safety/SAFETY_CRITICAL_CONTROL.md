@@ -817,6 +817,209 @@ c3bf_cost.update_obstacles([(x1, y1, r1, vx1, vy1)])
 
 ---
 
+## 11. Extended Safety Methods (Phase S4)
+
+Six additional safety-critical control methods were added in Phase S4, bringing the total to **16 methods**.
+
+### 11.1 HorizonWeightedCBFCost — Time-Discounted CBF
+
+Applies temporal discount `γ^t` to CBF violations so near-future violations are penalized more.
+
+```python
+from mppi_controller.controllers.mppi.horizon_cbf_cost import HorizonWeightedCBFCost
+
+cost = HorizonWeightedCBFCost(
+    obstacles=[(2.0, 0.0, 0.5)],
+    weight=100.0,          # CBF violation weight
+    cbf_alpha=0.3,         # discrete CBF alpha
+    discount_gamma=0.9,    # γ < 1: conservative, γ = 1: standard CBF
+    safety_margin=0.05,
+)
+# Use in CompositeMPPICost
+composite = CompositeMPPICost([StateTrackingCost(Q), TerminalCost(Qf), cost])
+controller = MPPIController(model, params, composite)
+```
+
+### 11.2 HardCBFCost — Binary Rejection
+
+Assigns `rejection_cost` (default 1e6) to any trajectory that penetrates an obstacle.
+
+```python
+from mppi_controller.controllers.mppi.hard_cbf_cost import HardCBFCost
+
+cost = HardCBFCost(
+    obstacles=[(2.0, 0.0, 0.5)],
+    rejection_cost=1e6,    # effectively zero softmax weight
+    safety_margin=0.05,
+)
+```
+
+### 11.3 MPSController — Model Predictive Shield
+
+Lightweight stateless safety shield (simplified Gatekeeper).
+
+```python
+from mppi_controller.controllers.mppi.mps_controller import MPSController
+from mppi_controller.controllers.mppi.backup_controller import BrakeBackupController
+
+mps = MPSController(
+    backup_controller=BrakeBackupController(),
+    obstacles=obstacles,
+    safety_margin=0.15,
+    backup_horizon=20,
+    dt=0.05,
+)
+
+# In control loop:
+u_mppi, info = controller.compute_control(state, ref)
+u_safe, mps_info = mps.shield(state, u_mppi, model)  # stateless
+```
+
+### 11.4 AdaptiveShieldMPPIController — Distance/Velocity-Adaptive Shield
+
+Shield-MPPI with adaptive alpha that **decreases** near obstacles (more conservative):
+
+```
+α(d,v) = α_base · (α_dist + (1 - α_dist) · σ(k·(d - d_safe))) / (1 + α_vel · |v|)
+```
+
+- `d >> d_safe` → `σ ≈ 1` → `α ≈ α_base` (relaxed, normal Shield)
+- `d << d_safe` → `σ ≈ 0` → `α ≈ α_base · α_dist` (very conservative)
+- High `|v|` → denominator grows → `α` decreases (conservative when fast)
+
+Lower α → lower `v_ceiling = α·h/|Lg_h|` → stronger speed reduction near obstacles.
+
+```python
+from mppi_controller.controllers.mppi.adaptive_shield_mppi import (
+    AdaptiveShieldMPPIController, AdaptiveShieldParams,
+)
+
+params = AdaptiveShieldParams(
+    N=15, dt=0.05, K=256, lambda_=1.0,
+    sigma=np.array([0.5, 0.5]),
+    Q=np.array([10.0, 10.0, 1.0]), R=np.array([0.1, 0.1]),
+    cbf_obstacles=obstacles, cbf_alpha=0.1,
+    shield_enabled=True,
+    alpha_base=0.3,   # max alpha (far from obstacles)
+    alpha_dist=0.1,   # min alpha ratio (close: α → α_base × 0.1 = 0.03)
+    alpha_vel=0.5,    # velocity reactivity (α /= (1 + 0.5·|v|))
+    k_dist=2.0,       # sigmoid steepness
+    d_safe=0.5,       # safe distance threshold (m)
+)
+controller = AdaptiveShieldMPPIController(model, params)
+u, info = controller.compute_control(state, ref)
+```
+
+### 11.5 CBFGuidedSamplingMPPIController — Rejection + Gradient Bias
+
+Resamples CBF-violating trajectories with `∇h`-biased noise.
+
+```python
+from mppi_controller.controllers.mppi.cbf_guided_sampling_mppi import (
+    CBFGuidedSamplingMPPIController, CBFGuidedSamplingParams,
+)
+
+params = CBFGuidedSamplingParams(
+    N=15, dt=0.05, K=256, lambda_=1.0,
+    sigma=np.array([0.5, 0.5]),
+    Q=np.array([10.0, 10.0, 1.0]), R=np.array([0.1, 0.1]),
+    cbf_obstacles=obstacles, cbf_alpha=0.1, cbf_weight=1000.0,
+    rejection_ratio=0.3,         # max fraction to resample
+    gradient_bias_weight=0.1,    # ∇h bias strength
+    max_resample_iters=3,        # max resample loops
+)
+controller = CBFGuidedSamplingMPPIController(model, params)
+```
+
+### 11.6 ShieldSVGMPPIController — Shield + SVG-MPPI
+
+Combines SVG-MPPI's high-quality SVGD sampling with per-step CBF shield enforcement.
+
+```python
+from mppi_controller.controllers.mppi.shield_svg_mppi import (
+    ShieldSVGMPPIController, ShieldSVGMPPIParams,
+)
+
+params = ShieldSVGMPPIParams(
+    N=15, dt=0.05, K=256, lambda_=1.0,
+    sigma=np.array([0.5, 0.5]),
+    Q=np.array([10.0, 10.0, 1.0]), R=np.array([0.1, 0.1]),
+    svg_num_guide_particles=16,
+    svgd_num_iterations=5,
+    shield_enabled=True,
+    shield_cbf_alpha=0.3,
+    cbf_obstacles=obstacles,
+    cbf_safety_margin=0.1,
+)
+controller = ShieldSVGMPPIController(model, params)
+```
+
+### 11.7 14-Method Benchmark
+
+```bash
+# Full benchmark (all 14 methods, dense_static scenario)
+python examples/comparison/safety_novel_benchmark_demo.py
+
+# Specific scenario
+python examples/comparison/safety_novel_benchmark_demo.py --scenario mixed
+
+# Select methods (by number)
+python examples/comparison/safety_novel_benchmark_demo.py --methods 1,3,12,14
+
+# All 4 scenarios
+python examples/comparison/safety_novel_benchmark_demo.py --all-scenarios
+
+# No plot (console output only)
+python examples/comparison/safety_novel_benchmark_demo.py --no-plot
+```
+
+### 11.8 Method Selection Guide
+
+| Scenario | Recommended | Why |
+|----------|------------|-----|
+| Dense static obstacles | AdaptiveShield | Distance-adaptive conservatism |
+| Fast dynamic obstacles | C3BF + Shield | Velocity-aware + rollout safety |
+| Narrow corridors | Shield-MPPI | Per-step enforcement |
+| Mixed challenge | ShieldSVG | High sample quality + safety |
+| Real-time critical | HardCBF | Minimal compute overhead |
+| Formal guarantee needed | Gatekeeper / MPS | Infinite-time safety proof |
+
+### 11.9 MPPI vs safe_control Benchmark
+
+Compares our MPPI safety methods against [tkkim-robot/safe_control](https://github.com/tkkim-robot/safe_control)
+(CBF-QP, MPC-CBF) on identical obstacle avoidance scenarios.
+
+**Scenarios**: Circle (r=3, 4 diverse obstacles) + Gauntlet (6 diverse obstacles)
+
+```bash
+# Full benchmark (8 methods, 2 scenarios, saves PNG)
+python examples/comparison/mppi_vs_safe_control_benchmark.py
+
+# Live animation
+python examples/comparison/mppi_vs_safe_control_benchmark.py --live --scenario circle_obstacle
+
+# Specific methods
+python examples/comparison/mppi_vs_safe_control_benchmark.py --methods cbf_qp,shield,adaptive_shield
+```
+
+**Results (Cross-Scenario Average, Path-Following RMSE):**
+
+| Method | Collisions | Safety% | PathRMSE | Time(ms) |
+|--------|-----------|---------|----------|----------|
+| **Adaptive Shield** | 0 | 100% | 0.381m | 7.5ms |
+| **Shield-MPPI** | 0 | 100% | 0.429m | 5.7ms |
+| **CBF-QP** (safe_control) | 0 | 100% | 0.671m | 1.3ms |
+| **MPC-CBF** (safe_control) | 0 | 100% | 0.804m | 8.6ms |
+| Vanilla MPPI | 84 | 72% | 0.486m | 3.1ms |
+
+Key findings:
+- **Adaptive Shield-MPPI** achieves best path tracking while maintaining 100% safety
+- **Shield-MPPI** provides hard safety guarantee with low path error
+- **CBF-QP** is fastest (1.3ms) but over-conservative on curved paths
+- **MPC-CBF** guarantees safety but has higher path deviation due to MPC horizon
+
+---
+
 ## References
 
 1. **Ames et al. (2019)** — "Control Barrier Functions: Theory and Applications" — CBF theory survey
@@ -825,3 +1028,5 @@ c3bf_cost.update_obstacles([(x1, y1, r1, vx1, vy1)])
 4. **Kim et al. (2026)** — "Dynamic Parabolic CBFs" (ICRA 2026) — DPCBF
 5. **Gurriet et al. (2020)** — "Scalable Safety-Critical Control of Robotic Systems" — Optimal-Decay + Gatekeeper
 6. **Rimon & Koditschek (1992)** — "Exact Robot Navigation Using Artificial Potential Functions"
+7. **Yin et al. (2023)** — "Shield Model Predictive Path Integral" — Shield-MPPI
+8. **Kondo et al. (2024)** — "SVG-MPPI" — Guide particle SVGD for MPPI

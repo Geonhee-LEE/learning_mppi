@@ -1,14 +1,14 @@
 # MPPI ROS2 - Claude 개발 가이드
 
-## 📊 프로젝트 현황 (2026-02-21)
+## 📊 프로젝트 현황 (2026-02-22)
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  Phase 1~4 + Safety + GPU + MAML + Post-MAML 완료! ✓       │
+│  Phase 1~4 + Safety 16종 + GPU + MAML + Post-MAML 완료! ✓  │
 ├────────────────────────────────────────────────────────────┤
 │  ✓ Phase 1: 기구학 모델 및 Vanilla MPPI                   │
 │  ✓ Phase 2: 동역학 모델 (마찰/관성)                       │
-│  ✓ Phase 3: MPPI 변형 9종 + 8 Safety-Critical Control     │
+│  ✓ Phase 3: MPPI 변형 9종 + 16 Safety-Critical Control    │
 │  ✓ Phase 4: 학습 모델 9종 (Neural/GP/Residual/Ensemble/   │
 │             MC-Dropout/MAML/EKF/L1/ALPaCA) + 온라인 학습   │
 │  ✓ GPU 가속: RTX 5080 K=8192→8.1x speedup                │
@@ -19,9 +19,11 @@
 │  ✓ Reptile 메타 학습 + Residual Meta-Training             │
 │  ✓ 시뮬레이션: 10개 환경 시나리오                         │
 │  ✓ SVMPC 최적화: SPSA gradient (1464→113ms, 13x)         │
-│  ✓ Slalom 적응형 진폭 + 장애물 회피 그리드                │
+│  ✓ Safety 확장: 6종 신규 + 14종 벤치마크                  │
+│  ✓ safe_control 비교: MPPI vs CBF-QP/MPC-CBF 벤치마크     │
+│    AdaptiveShield 100%안전 + RMSE 0.38m (최고 성능)       │
 │                                                            │
-│  487 tests (37 files), ~27,000+ lines                      │
+│  527 tests (43 files), ~30,000+ lines                      │
 ├────────────────────────────────────────────────────────────┤
 │  → 다음: ROS2 통합 (M4) 또는 C++ 포팅                     │
 └────────────────────────────────────────────────────────────┘
@@ -171,18 +173,33 @@ MPPIController (base_mppi.py) — Vanilla MPPI
 │   └── AncillaryController    ── body frame 피드백
 │
 ├── LogMPPIController          ── log-space softmax
-│
 ├── TsallisMPPIController      ── q-exponential 가중치
-│
 ├── RiskAwareMPPIController    ── CVaR 가중치 절단
-│
 ├── SteinVariationalMPPIController ── SVGD 샘플 다양성
-│
 ├── SmoothMPPIController       ── Δu input-lifting
-│
 ├── SplineMPPIController       ── B-spline 보간
 │
-└── SVGMPPIController          ── Guide particle SVGD
+├── SVGMPPIController          ── Guide particle SVGD
+│   └── ShieldSVGMPPIController ── Shield + SVG 결합
+│
+├── CBFMPPIController          ── CBF 비용 + QP 필터
+│   ├── ShieldMPPIController   ── per-step CBF enforcement
+│   │   └── AdaptiveShieldMPPIController ── 거리/속도 적응형 α
+│   └── CBFGuidedSamplingMPPIController ── 거부 샘플링 + ∇h 편향
+│
+├── Safety Cost Functions (CostFunction ABC):
+│   ├── ControlBarrierCost     ── 기본 CBF 비용
+│   ├── HorizonWeightedCBFCost ── 시간 할인 CBF (γ^t)
+│   ├── HardCBFCost            ── 이진 거부 (h<0 → 1e6)
+│   ├── CollisionConeCBFCost   ── 속도 인지 C3BF
+│   └── DynamicParabolicCBFCost ── LoS 적응형 DPCBF
+│
+└── Safety Filters (post-processing):
+    ├── CBFSafetyFilter        ── 기본 QP 필터
+    ├── OptimalDecayCBFSafetyFilter ── 이완형 CBF
+    ├── BackupCBFSafetyFilter  ── 민감도 전파
+    ├── Gatekeeper             ── 백업 궤적 안전 검증
+    └── MPSController          ── 간소 Model Predictive Shield
 ```
 
 ### 인터페이스 규칙

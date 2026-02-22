@@ -1065,17 +1065,55 @@
 - [x] 장애물 회피 그리드 벤치마크: `--mode obstacle`, `--with-cbf`
 - [x] test_trajectory.py: slalom 임계값 조정 + kinematic feasibility 테스트
 
+#### Safety-Critical Control 확장 Phase S4 (2026-02-22) ✓
+
+- [x] #740 HorizonWeightedCBFCost ✓ 2026-02-22
+  * 시간 할인(γ^t) CBF 비용 — 가까운 미래 위반에 더 높은 페널티
+- [x] #741 HardCBFCost ✓ 2026-02-22
+  * 이진 거부 CBF — h<0이면 궤적 전체에 rejection_cost(1e6) 부과
+- [x] #742 MPSController ✓ 2026-02-22
+  * Model Predictive Shield — 간소화 Gatekeeper (stateless)
+- [x] #743 AdaptiveShieldMPPIController ✓ 2026-02-22
+  * 거리/속도 기반 적응형 α(d,v) Shield-MPPI
+- [x] #744 CBFGuidedSamplingMPPIController ✓ 2026-02-22
+  * 거부 샘플링 + ∇h 방향 편향 리샘플
+- [x] #745 ShieldSVGMPPIController ✓ 2026-02-22
+  * Shield + SVG-MPPI 결합 (안전 + 고품질 샘플)
+- [x] #746 14종 Safety 벤치마크 데모 ✓ 2026-02-22
+  * 4 시나리오 × 14 기법 비교, 5 메트릭, 6-panel 시각화
+
+#### MPPI vs safe_control 벤치마크 (2026-02-22) ✓
+
+- [x] #750 safe_control 패키지 연동 (CBF-QP, MPC-CBF) ✓ 2026-02-22
+  * Unicycle2D + BaseRobot + CBFQP/MPCCBF API 연동
+  * 장애물 형식: CBF-QP (7,1) columns, MPC-CBF (7,) 1D
+  * robot_radius 이중 계산 방지 (safe_control 내부 처리)
+- [x] #751 mppi_vs_safe_control_benchmark.py ✓ 2026-02-22
+  * 8종 비교: CBF-QP, MPC-CBF, Vanilla, CBF-MPPI, Shield, AdaptiveShield, CBFGuided, ShieldSVG
+  * 2 시나리오: circle_obstacle (원형 + 4장애물), gauntlet (직선 + 6장애물)
+  * pure pursuit 레퍼런스 (장애물 회피 후 경로 복귀)
+  * path-following RMSE (시간 기반 → 궤적 최근접점 기반)
+  * --live 모드 (4-panel FuncAnimation), --no-plot, --methods
+- [x] #752 AdaptiveShield alpha 공식 수정 (버그 수정) ✓ 2026-02-22
+  * 기존 (잘못됨): α = α_base + α_dist·exp(...) → 가까울수록 α 증가 → 덜 보수적
+  * 수정: α = α_base · σ(k·(d-d_safe)) / (1+α_vel·|v|) → 가까울수록 α 감소 → 더 보수적
+  * 결과: 충돌 179건 → 0건 (100% 안전)
+- [x] #753 adaptive_safety_benchmark.py ✓ 2026-02-22
+  * 적응 제어(EKF/L1) + 안전 제어(CBF/Shield) 결합 9종 비교
+  * DynamicWorld 모델 불일치 시뮬레이션
+  * --live, --no-mismatch, --methods, --scenario CLI
+
 #### 종합 통계
 
-**총 구현 코드**: ~27,000+ 라인
-**유닛 테스트**: 487개 passed (37 파일)
+**총 구현 코드**: ~30,000+ 라인
+**유닛 테스트**: 527개 passed (43 파일)
 **MPPI 변형**: 9개 (전부 완성 ✅)
 **모델 타입**: 5개 (DiffDrive Kinematic/Dynamic, Ackermann, Swerve, Learned)
 **학습 모델**: 9개 (Neural/GP/Residual/Ensemble/MC-Dropout/MAML/EKF/L1/ALPaCA ✅)
 **메타 학습**: FOMAML + Reptile + Residual Meta-Training ✅
-**안전 제어**: 8개 (CBF/C3BF/DPCBF/OptimalDecay/Shield/Gatekeeper/BackupCBF/MultiRobot ✅)
+**안전 제어**: 16개 (기존 10종 + HorizonCBF/HardCBF/MPS/AdaptiveShield/CBFGuided/ShieldSVG ✅)
 **시뮬레이션 환경**: 10개 시나리오 + 외란 프로필 4종 ✅
-**데모**: Model Mismatch 4-Way(perturbed) + 10-Way(dynamic, MAML/EKF/L1/ALPaCA 포함) 비교 ✅
+**데모**: Model Mismatch 10-Way + Safety 14-Way + MPPI vs safe_control 8-Way ✅
 **문서**: README, META_LEARNING, SIMULATION_ENVIRONMENTS, SAFETY_CRITICAL_CONTROL, LEARNED_MODELS_GUIDE 등
 
 ---
