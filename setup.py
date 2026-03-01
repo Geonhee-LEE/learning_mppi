@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 import os
 from glob import glob
 
-package_name = 'mppi_ros2'
+package_name = 'learning_mppi'
 
 setup(
     name=package_name,
@@ -35,6 +35,7 @@ setup(
             'mppi_visualizer_node = mppi_controller.ros2.mppi_visualizer_node:main',
             'trajectory_publisher = mppi_controller.ros2.trajectory_publisher:main',
             'simple_robot_simulator = mppi_controller.ros2.simple_robot_simulator:main',
+            'mppi_follow_path_server = mppi_controller.ros2.nav2.follow_path_server:main',
         ],
     },
 )

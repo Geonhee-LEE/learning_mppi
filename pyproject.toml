@@ -3,7 +3,7 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mppi-ros2"
+name = "learning-mppi"
 version = "0.1.0"
 description = "MPPI (Model Predictive Path Integral) Controller for ROS2 Mobile Robots"
 readme = "README.md"

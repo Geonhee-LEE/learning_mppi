@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>mppi_ros2</name>
+  <name>learning_mppi</name>
   <version>0.1.0</version>
   <description>Model Predictive Path Integral (MPPI) Control for ROS2</description>
 
@@ -10,9 +10,9 @@
 
   <author email="gunhee6392@gmail.com">Geonhee Lee</author>
 
-  <url type="website">https://github.com/Geonhee-LEE/mppi_ros2</url>
-  <url type="bugtracker">https://github.com/Geonhee-LEE/mppi_ros2/issues</url>
-  <url type="repository">https://github.com/Geonhee-LEE/mppi_ros2</url>
+  <url type="website">https://github.com/Geonhee-LEE/learning_mppi</url>
+  <url type="bugtracker">https://github.com/Geonhee-LEE/learning_mppi/issues</url>
+  <url type="repository">https://github.com/Geonhee-LEE/learning_mppi</url>
 
   <buildtool_depend>ament_python</buildtool_depend>
 
@@ -25,6 +25,9 @@
   <depend>visualization_msgs</depend>
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>rclpy_action</depend>
+  <depend>lifecycle_msgs</depend>
 
   <!-- Python dependencies -->
   <exec_depend>python3-numpy</exec_depend>

@@ -441,7 +441,7 @@ MPPI 알고리즘 흐름:
 ### 3.2 파일 구조
 
 ```
-mppi_ros2/
+learning_mppi/
 ├── mppi_controller/
 │   ├── __init__.py
 │   ├── models/

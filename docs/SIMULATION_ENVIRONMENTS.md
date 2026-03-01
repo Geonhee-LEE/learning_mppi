@@ -28,7 +28,7 @@
 ## Quick Start
 
 ```bash
-cd /path/to/mppi_ros2
+cd /path/to/learning_mppi
 
 # Run all 10 scenarios (batch, no plots)
 PYTHONPATH=. python examples/simulation_environments/run_all.py
