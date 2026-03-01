@@ -1333,6 +1333,32 @@ python examples/comparison/model_mismatch_comparison_demo.py \
 4. Dynamic (5D), 5. MAML-3D, 6. MAML-5D,
 7. EKF (5D), 8. L1 Adaptive (5D), 9. ALPaCA (5D), 10. Oracle (5D)
 
+### 6-DOF Mobile Manipulator 8-Way 학습 모델 벤치마크
+
+6-DOF 모바일 매니퓰레이터(9D 상태, 8D 제어)에 대해 8개 학습 모델을 2개 시나리오(`ee_3d_circle`, `ee_3d_helix`)에서 비교합니다.
+
+```bash
+# 1. 모델 학습 (6종: NN, GP, Ensemble, MC-Dropout, MAML, ALPaCA)
+PYTHONPATH=. python scripts/train_6dof_all_models.py --quick  # 빠른 테스트
+PYTHONPATH=. python scripts/train_6dof_all_models.py          # 전체 학습
+
+# 2. 벤치마크 실행
+PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py
+
+# 3. 특정 모델/시나리오 선택
+PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py \
+    --models kinematic,residual_nn,residual_maml,oracle --scenario ee_3d_circle
+
+# 4. 학습 모델 없이 (kinematic + oracle만)
+PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py \
+    --models kinematic,oracle --duration 15
+```
+
+8-Way 비교 대상:
+1. Kinematic (기준선), 2. Residual-NN, 3. Residual-GP,
+4. Residual-Ensemble, 5. Residual-MCDropout,
+6. Residual-MAML (온라인 적응), 7. Residual-ALPaCA (온라인 적응), 8. Oracle
+
 ---
 
 ## 참고 자료

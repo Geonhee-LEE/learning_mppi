@@ -1,14 +1,14 @@
 # MPPI ROS2 - Claude 개발 가이드
 
-## 📊 프로젝트 현황 (2026-02-22)
+## 📊 프로젝트 현황 (2026-03-01)
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  Phase 1~4 + Safety 16종 + GPU + MAML + Post-MAML 완료! ✓  │
+│  Phase 1~4 + Safety 19종 + GPU + MAML + Post-MAML 완료! ✓  │
 ├────────────────────────────────────────────────────────────┤
 │  ✓ Phase 1: 기구학 모델 및 Vanilla MPPI                   │
 │  ✓ Phase 2: 동역학 모델 (마찰/관성)                       │
-│  ✓ Phase 3: MPPI 변형 9종 + 16 Safety-Critical Control    │
+│  ✓ Phase 3: MPPI 변형 10종 + 19 Safety-Critical Control   │
 │  ✓ Phase 4: 학습 모델 9종 (Neural/GP/Residual/Ensemble/   │
 │             MC-Dropout/MAML/EKF/L1/ALPaCA) + 온라인 학습   │
 │  ✓ GPU 가속: RTX 5080 K=8192→8.1x speedup                │
@@ -22,8 +22,12 @@
 │  ✓ Safety 확장: 6종 신규 + 14종 벤치마크                  │
 │  ✓ safe_control 비교: MPPI vs CBF-QP/MPC-CBF 벤치마크     │
 │    AdaptiveShield 100%안전 + RMSE 0.38m (최고 성능)       │
+│  ✓ DIAL-MPPI: 확산 어닐링 + Shield/Adaptive 결합          │
+│    바람 외란 시나리오에서 Shield 100% 안전 보장            │
+│  ✓ 6-DOF 학습 모델 벤치마크: 8-Way 비교                   │
+│    NN/GP/Ensemble/MCDropout/MAML/ALPaCA × 2 시나리오      │
 │                                                            │
-│  527 tests (43 files), ~30,000+ lines                      │
+│  771 tests (52 files), ~33,000+ lines                      │
 ├────────────────────────────────────────────────────────────┤
 │  → 다음: ROS2 통합 (M4) 또는 C++ 포팅                     │
 └────────────────────────────────────────────────────────────┘
@@ -94,7 +98,7 @@ MPPI (Model Predictive Path Integral) 기반 ROS2 모바일 로봇 제어 시스
 ## 프로젝트 구조
 
 ```
-mppi_ros2/
+learning_mppi/
 ├── mppi_controller/              # MPPI 컨트롤러 패키지
 │   ├── models/                   # 로봇 동역학 모델
 │   │   ├── differential_drive/   # 차동 구동 (v, omega)
@@ -111,6 +115,9 @@ mppi_ros2/
 │   │   │   ├── smooth_mppi.py    # Smooth MPPI
 │   │   │   ├── spline_mppi.py    # Spline-MPPI
 │   │   │   ├── svg_mppi.py       # SVG-MPPI
+│   │   │   ├── dial_mppi.py     # DIAL-MPPI (확산 어닐링)
+│   │   │   ├── shield_dial_mppi.py # Shield-DIAL-MPPI
+│   │   │   ├── adaptive_shield_dial_mppi.py # Adaptive Shield-DIAL
 │   │   │   ├── cost_functions.py # 비용 함수
 │   │   │   ├── sampling.py       # 노이즈 샘플러
 │   │   │   ├── dynamics_wrapper.py # 배치 동역학
@@ -181,6 +188,10 @@ MPPIController (base_mppi.py) — Vanilla MPPI
 │
 ├── SVGMPPIController          ── Guide particle SVGD
 │   └── ShieldSVGMPPIController ── Shield + SVG 결합
+│
+├── DIALMPPIController         ── 확산 어닐링 (multi-iter + noise decay)
+│   └── ShieldDIALMPPIController ── Shield + DIAL 결합
+│       └── AdaptiveShieldDIALMPPIController ── α(d,v) 적응형
 │
 ├── CBFMPPIController          ── CBF 비용 + QP 필터
 │   ├── ShieldMPPIController   ── per-step CBF enforcement
@@ -338,17 +349,36 @@ M5: C++ 포팅
 
 ## 테스트 및 검증
 
+### 테스트 현황 (2026-03-01)
+- **771 tests** / **52 files** / **9.18s** / **0 failures**
+- Python 3.12.12, pytest 9.0.2
+
 ### 테스트 실행
 ```bash
-# 전체 테스트
-pytest tests/ -v
+# 전체 테스트 (771개)
+python -m pytest tests/ -v --override-ini="addopts="
 
-# MPPI 테스트만
-pytest tests/test_mppi*.py -v
+# 카테고리별 실행
+python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py -v --override-ini="addopts="  # MPPI
+python -m pytest tests/test_shield_mppi.py tests/test_cbf_mppi.py -v --override-ini="addopts="  # Safety
+python -m pytest tests/test_robot_models.py -v --override-ini="addopts="  # 로봇 모델
+python -m pytest tests/test_maml.py tests/test_ekf_dynamics.py -v --override-ini="addopts="  # 학습 모델
 
 # 특정 테스트
-pytest tests/test_mppi.py::test_circle_tracking -v
+python -m pytest tests/test_base_mppi.py::test_circle_tracking -v --override-ini="addopts="
 ```
+
+### 테스트 카테고리
+| 카테고리 | 파일 수 | 테스트 수 | 주요 검증 항목 |
+|---------|---------|----------|--------------|
+| MPPI 컨트롤러 | 12 | 87 | 10종 변형 알고리즘 동작 + GPU (DIAL/Shield-DIAL 포함) |
+| Safety-Critical | 12 | 128 | 19종 안전 제어 (CBF/Shield/Gatekeeper/Shield-DIAL 등) |
+| 로봇 모델 | 1 | 69 | 3종 × 2 (Kin/Dyn) 모델 |
+| 학습 모델 | 9 | 150 | NN/GP/MAML/EKF/L1/ALPaCA 등 |
+| 6-DOF 벤치마크 | 1 | 18 | 8-Way 학습 모델 비교 (NN/GP/Ensemble/MCDrop/MAML/ALPaCA) |
+| 코어 컴포넌트 | 6 | 59 | 비용함수, 샘플링, 궤적 등 |
+| Nav2 통합 | 5 | 36 | FollowPath, Costmap, PathWindower |
+| 기타 | 6 | 69 | Perception, Pipeline, Dynamic Obstacles |
 
 ### 성능 기준
 - **위치 추적 RMSE**: < 0.2m (원형 궤적)

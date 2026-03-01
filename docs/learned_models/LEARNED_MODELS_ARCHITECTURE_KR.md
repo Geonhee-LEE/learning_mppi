@@ -745,7 +745,7 @@ rollout_metrics = validator.evaluate_rollout(
 ### 사전 준비
 
 ```bash
-cd /path/to/mppi_ros2
+cd /path/to/learning_mppi
 
 # 필수 패키지
 pip install torch matplotlib
@@ -870,13 +870,14 @@ PYTHONPATH=. python examples/comparison/physics_vs_learned_demo.py \
 | mppi_residual_dynamics_demo | 잔차 타입 3종 | 물리 모델 보정 효과 | ~1분 |
 | online_learning_demo | 적응 전 vs 후 | 도메인 변화 대응 | ~3분 |
 | physics_vs_learned_demo | Kinematic vs Dynamic vs Residual | 모델 정확도 vs 계산 비용 | ~1분 |
+| 6dof_learned_benchmark | 8-Way 학습 모델 비교 | 6-DOF EE 추적 (NN/GP/Ensemble/MCDrop/MAML/ALPaCA) | ~2분 |
 
 ---
 
 ## 10. 파일 구조 맵
 
 ```
-mppi_ros2/
+learning_mppi/
 ├── mppi_controller/
 │   ├── models/
 │   │   ├── base_model.py                          # RobotModel ABC
@@ -894,6 +895,8 @@ mppi_ros2/
 │   │   ├── neural_network_trainer.py               # NN 학습기
 │   │   ├── gaussian_process_trainer.py             # GP 학습기
 │   │   ├── ensemble_trainer.py                     # 앙상블 학습기
+│   │   ├── maml_trainer.py                         # MAML 메타 학습기
+│   │   ├── alpaca_trainer.py                       # ALPaCA 메타 학습기
 │   │   ├── online_learner.py                       # 온라인 학습기
 │   │   └── model_validator.py                      # 모델 검증기
 │   │
@@ -914,12 +917,16 @@ mppi_ros2/
 │   │   ├── mppi_residual_dynamics_demo.py          # 잔차 모델 데모
 │   │   └── online_learning_demo.py                 # 온라인 학습 데모
 │   └── comparison/
-│       └── physics_vs_learned_demo.py              # 3-way 비교
+│       ├── physics_vs_learned_demo.py              # 3-way 비교
+│       └── 6dof_learned_benchmark.py               # 6-DOF 학습 모델 8-Way 벤치마크
 │
 ├── docs/learned_models/
 │   ├── LEARNED_MODELS_GUIDE.md                     # 영문 종합 가이드
 │   ├── ONLINE_LEARNING.md                          # 온라인 학습 가이드
 │   └── LEARNED_MODELS_ARCHITECTURE_KR.md           # 본 문서 (한국어)
+│
+├── scripts/
+│   └── train_6dof_all_models.py                    # 6종 모델 통합 학습
 │
 └── tests/
     ├── test_neural_dynamics.py                     # NN 테스트 (8)
@@ -928,5 +935,6 @@ mppi_ros2/
     ├── test_data_pipeline.py                       # 데이터 파이프라인 (15)
     ├── test_online_learner.py                      # 온라인 학습 (17)
     ├── test_ensemble_validator_uncertainty.py       # 앙상블/검증/불확실성 (14)
-    └── test_mc_dropout_checkpoint.py               # MCDropout/체크포인트 (17)
+    ├── test_mc_dropout_checkpoint.py               # MCDropout/체크포인트 (17)
+    └── test_6dof_learned_benchmark.py              # 6-DOF 8-Way 벤치마크 (18)
 ```

@@ -453,7 +453,7 @@ python examples/comparison/model_mismatch_comparison_demo.py \
 가장 간단한 방법은 `--all --world dynamic`으로 전체 파이프라인을 실행하는 것입니다:
 
 ```bash
-cd /path/to/mppi_ros2
+cd /path/to/learning_mppi
 
 python examples/comparison/model_mismatch_comparison_demo.py \
     --all --world dynamic --trajectory circle --duration 20
@@ -575,8 +575,42 @@ PYTHONPATH=. python -m pytest tests/test_ekf_dynamics.py -v -o "addopts="   # 18
 PYTHONPATH=. python -m pytest tests/test_l1_adaptive.py -v -o "addopts="    # 17개
 PYTHONPATH=. python -m pytest tests/test_alpaca.py -v -o "addopts="         # 23개
 
-# 전체 회귀 테스트 (484개)
+# 6-DOF 학습 모델 벤치마크 테스트 (18개)
+PYTHONPATH=. python -m pytest tests/test_6dof_learned_benchmark.py -v -o "addopts="
+
+# 전체 회귀 테스트 (771개)
 PYTHONPATH=. python -m pytest tests/ -x -q -o "addopts="
+```
+
+### 6-DOF Mobile Manipulator 확장
+
+DiffDrive 5D 메타 학습과 동일한 MAML/ALPaCA 프레임워크를 6-DOF 매니퓰레이터(9D 상태, 8D 제어)로 확장:
+
+```bash
+# 6종 모델 통합 학습 (NN, GP, Ensemble, MCDropout, MAML, ALPaCA)
+PYTHONPATH=. python scripts/train_6dof_all_models.py --samples 10000 --epochs 200
+
+# 빠른 학습 (테스트용)
+PYTHONPATH=. python scripts/train_6dof_all_models.py --quick
+
+# 특정 모델만
+PYTHONPATH=. python scripts/train_6dof_all_models.py --models maml,alpaca
+
+# 8-Way 벤치마크 (Kinematic/NN/GP/Ensemble/MCDropout/MAML/ALPaCA/Oracle)
+PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py --duration 15
+PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py --scenario ee_3d_helix
+```
+
+6-DOF MAML/ALPaCA의 태스크 분포는 관절 마찰, 중력 처짐, 커플링 등 매니퓰레이터 고유 파라미터를 변화시킵니다:
+
+```python
+# 6-DOF 태스크 샘플링 (train_6dof_all_models.py)
+task = {
+    "joint_friction": default_friction * np.random.uniform(0.5, 2.0, 6),
+    "gravity_droop": np.random.uniform(0.03, 0.15),
+    "coupling_gain": np.random.uniform(0.01, 0.05),
+    "base_response_k": np.random.uniform(3.0, 8.0),
+}
 ```
 
 ---
@@ -1013,6 +1047,9 @@ python examples/comparison/model_mismatch_comparison_demo.py \
 - `mppi_controller/models/kinematic/dynamic_kinematic_adapter.py` — DynamicKinematicAdapter (5D base)
 - `examples/comparison/disturbance_profiles.py` — 외란 프로필 4종
 - `examples/comparison/model_mismatch_comparison_demo.py` — 10-Way 비교 데모
+- `scripts/train_6dof_all_models.py` — 6-DOF 6종 학습 모델 통합 학습
+- `examples/comparison/6dof_learned_benchmark.py` — 6-DOF 8-Way 벤치마크
+- `tests/test_6dof_learned_benchmark.py` — 6-DOF 벤치마크 컴포넌트 테스트 (18개)
 
 ### 관련 문서
 
@@ -1022,5 +1059,5 @@ python examples/comparison/model_mismatch_comparison_demo.py \
 
 ---
 
-**마지막 업데이트**: 2026-02-21
+**마지막 업데이트**: 2026-03-01
 **작성자**: Claude Opus 4.6 + Geonhee LEE
