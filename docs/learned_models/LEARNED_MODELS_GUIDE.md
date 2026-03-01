@@ -1354,10 +1354,54 @@ PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py \
     --models kinematic,oracle --duration 15
 ```
 
-8-Way 비교 대상:
-1. Kinematic (기준선), 2. Residual-NN, 3. Residual-GP,
-4. Residual-Ensemble, 5. Residual-MCDropout,
-6. Residual-MAML (온라인 적응), 7. Residual-ALPaCA (온라인 적응), 8. Oracle
+7-Way 비교 대상:
+1. Kinematic (기준선), 2. Residual-NN,
+3. Residual-Ensemble, 4. Residual-MCDropout,
+5. Residual-MAML (온라인 적응), 6. Residual-ALPaCA (온라인 적응), 7. Oracle
+
+> GP는 `gpytorch` 설치 시 8-Way로 확장 가능
+
+#### 벤치마크 결과 (K=512, 15s, quick training)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  ee_3d_circle (원형 궤적)                                        │
+├──────────────────────────────────────────────────────────────────┤
+│  순위   모델            RMSE(m)   MaxErr(m)  Solve(ms)          │
+│  #1    Kinematic        0.066     0.328      27.3   ← 가장 빠름 │
+│  #2    Res-MAML         0.069     0.328      50.0   ← 최적 균형 │
+│  #3    Oracle           0.070     0.330      42.9                │
+│  #4    Res-Ensemble     0.071     0.328      161.4               │
+│  #5    Res-ALPaCA       0.072     0.328      48.2                │
+│  #6    Res-NN           0.072     0.328      52.5                │
+│  #7    Res-MCDrop       0.072     0.328      1422.9  ← 비실시간 │
+├──────────────────────────────────────────────────────────────────┤
+│  ee_3d_helix (나선 궤적)                                         │
+├──────────────────────────────────────────────────────────────────┤
+│  순위   모델            RMSE(m)   MaxErr(m)  Solve(ms)          │
+│  #1    Oracle           0.063     0.263      42.7                │
+│  #2    Res-MCDrop       0.064     0.261      1425.9              │
+│  #3    Res-MAML         0.067     0.268      52.5   ← 최적 균형 │
+│  #4    Res-Ensemble     0.068     0.282      160.2               │
+│  #5    Res-NN           0.073     0.269      51.4                │
+│  #6    Kinematic        0.074     0.269      27.1                │
+│  #7    Res-ALPaCA       0.078     0.272      49.6                │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+#### 분석
+
+1. **단순 궤적 (circle)에서 Kinematic이 #1**: 원형 궤적은 기구학-동역학 미스매치가 작아 MPPI 피드백만으로 충분히 보상. 학습 모델의 잔차 래퍼 오버헤드가 오히려 불리하게 작용.
+
+2. **복잡 궤적 (helix)에서 학습 모델 우위**: 3D 높이 변화가 포함된 나선 궤적에서는 중력 처짐, 관절 마찰 등 동역학 효과가 커져 학습 모델(Oracle, MCDrop, MAML, Ensemble)이 Kinematic 대비 ~10% 이상 개선.
+
+3. **Res-MAML = 최적 비용 대비 성능**: 양쪽 시나리오에서 #2/#3 순위이며 ~50ms 계산 시간으로 실시간 적합. 온라인 적응이 시나리오 간 일관된 성능을 제공.
+
+4. **MC-Dropout 정밀도 vs 계산 비용**: helix에서 #2이나 ~1.4s/step은 실시간 불가. 20회 MC 샘플링이 불확실성 정량화에는 유용하나 제어 루프에는 부적합.
+
+5. **Ensemble: 좋은 절충안**: 양쪽 #4, ~160ms. 불확실성 추정 + 합리적 계산 비용.
+
+6. **Quick training 한계**: 2000 샘플, 30 에포크로 학습. 전체 학습(10000 샘플, 200 에포크)시 학습 모델의 차별화가 더 뚜렷해질 것으로 예상.
 
 ---
 

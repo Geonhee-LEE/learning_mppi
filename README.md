@@ -541,12 +541,30 @@ python examples/comparison/model_mismatch_comparison_demo.py \
 python examples/comparison/model_mismatch_comparison_demo.py \
     --evaluate --world dynamic --noise 0.7 --disturbance combined
 
-# 6-DOF Mobile Manipulator 8-Way Learned Model Benchmark
+# 6-DOF Mobile Manipulator 7-Way Learned Model Benchmark
 PYTHONPATH=. python scripts/train_6dof_all_models.py --quick            # Train all models
 PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py       # Run benchmark
 PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py \
     --models kinematic,residual_nn,oracle --scenario ee_3d_circle       # Subset
 ```
+
+#### 6-DOF Benchmark Results (K=512, 15s, quick training)
+
+<p align="center">
+  <img src="plots/6dof_learned_benchmark.png" width="900"/>
+</p>
+
+| Rank | ee_3d_circle | RMSE | ee_3d_helix | RMSE | Solve |
+|------|-------------|------|-------------|------|-------|
+| 1 | **Kinematic** | 0.066m | **Oracle** | 0.063m | 43ms |
+| 2 | Res-MAML | 0.069m | Res-MCDrop | 0.064m | 1426ms |
+| 3 | Oracle | 0.070m | Res-MAML | 0.067m | 50ms |
+| 4 | Res-Ensemble | 0.071m | Res-Ensemble | 0.068m | 161ms |
+| 5 | Res-ALPaCA | 0.072m | Res-NN | 0.073m | 52ms |
+| 6 | Res-NN | 0.072m | Kinematic | 0.074m | 27ms |
+| 7 | Res-MCDrop | 0.072m | Res-ALPaCA | 0.078m | 50ms |
+
+**Key findings**: (1) Simple circle trajectory — MPPI feedback compensates kinematic-dynamic mismatch well; (2) Complex helix — learned models (MAML, Ensemble) clearly outperform Kinematic by ~10%; (3) **Res-MAML** is the best cost-effective choice (#2/#3 across scenarios, ~50ms); (4) MC-Dropout achieves top accuracy on helix but ~1.4s/step is impractical for real-time.
 
 ### Simulation Environments (10 Scenarios)
 

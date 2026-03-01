@@ -870,7 +870,7 @@ PYTHONPATH=. python examples/comparison/physics_vs_learned_demo.py \
 | mppi_residual_dynamics_demo | 잔차 타입 3종 | 물리 모델 보정 효과 | ~1분 |
 | online_learning_demo | 적응 전 vs 후 | 도메인 변화 대응 | ~3분 |
 | physics_vs_learned_demo | Kinematic vs Dynamic vs Residual | 모델 정확도 vs 계산 비용 | ~1분 |
-| 6dof_learned_benchmark | 8-Way 학습 모델 비교 | 6-DOF EE 추적 (NN/GP/Ensemble/MCDrop/MAML/ALPaCA) | ~2분 |
+| 6dof_learned_benchmark | 7-Way 학습 모델 비교 | 6-DOF EE 추적: circle RMSE 0.066~0.072m, helix 0.063~0.078m. MAML 최적 균형 (~50ms) | ~18분 |
 
 ---
 
