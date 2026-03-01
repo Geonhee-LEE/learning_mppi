@@ -189,6 +189,152 @@ def generate_reference_trajectory(
     return reference
 
 
+def ee_circle_trajectory(
+    t: float,
+    radius: float = 0.5,
+    angular_velocity: float = 0.3,
+    center: tuple = (1.0, 0.0),
+    state_dim: int = 5,
+) -> np.ndarray:
+    """
+    End-Effector 원형 궤적
+
+    ref[0]=ee_x, ref[1]=ee_y, 나머지=0
+    MPPI의 EndEffectorTrackingCost가 ref[:2]를 EE 목표로 사용.
+
+    Args:
+        t: 현재 시간 (초)
+        radius: 원 반지름 (m)
+        angular_velocity: 각속도 (rad/s)
+        center: 원 중심 (x, y)
+        state_dim: 상태 차원 (기본 5: mobile manipulator)
+
+    Returns:
+        state: (state_dim,) - [ee_x, ee_y, 0, ...]
+    """
+    theta = angular_velocity * t
+    ee_x = center[0] + radius * np.cos(theta)
+    ee_y = center[1] + radius * np.sin(theta)
+
+    state = np.zeros(state_dim)
+    state[0] = ee_x
+    state[1] = ee_y
+    return state
+
+
+def ee_figure_eight_trajectory(
+    t: float,
+    scale: float = 0.5,
+    period: float = 20.0,
+    center: tuple = (1.0, 0.0),
+    state_dim: int = 5,
+) -> np.ndarray:
+    """
+    End-Effector 8자 궤적 (Lemniscate)
+
+    Args:
+        t: 현재 시간 (초)
+        scale: 스케일 (m)
+        period: 주기 (초)
+        center: 중심 (x, y)
+        state_dim: 상태 차원
+
+    Returns:
+        state: (state_dim,) - [ee_x, ee_y, 0, ...]
+    """
+    theta = 2 * np.pi * t / period
+    denom = 1 + np.sin(theta) ** 2
+    ee_x = center[0] + scale * np.cos(theta) / denom
+    ee_y = center[1] + scale * np.sin(theta) * np.cos(theta) / denom
+
+    state = np.zeros(state_dim)
+    state[0] = ee_x
+    state[1] = ee_y
+    return state
+
+
+def ee_3d_circle_trajectory(
+    t: float,
+    radius: float = 0.3,
+    angular_velocity: float = 0.3,
+    center: tuple = (0.4, 0.0, 0.4),
+    orientation: tuple = (np.pi, 0.0, 0.0),
+    state_dim: int = 9,
+) -> np.ndarray:
+    """
+    End-Effector 3D 원형 궤적 (XY 평면, 고정 z)
+
+    ref[:3] = position (x, y, z)
+    ref[3:6] = orientation (roll, pitch, yaw)
+    ref[6:] = 0
+
+    Args:
+        t: 현재 시간 (초)
+        radius: 원 반지름 (m)
+        angular_velocity: 각속도 (rad/s)
+        center: 원 중심 (x, y, z)
+        orientation: 목표 RPY (roll, pitch, yaw)
+        state_dim: 상태 차원 (기본 9: 6-DOF mobile manipulator)
+
+    Returns:
+        state: (state_dim,) - [ee_x, ee_y, ee_z, roll, pitch, yaw, 0, ...]
+    """
+    theta = angular_velocity * t
+    ee_x = center[0] + radius * np.cos(theta)
+    ee_y = center[1] + radius * np.sin(theta)
+    ee_z = center[2]
+
+    state = np.zeros(state_dim)
+    state[0] = ee_x
+    state[1] = ee_y
+    state[2] = ee_z
+    state[3] = orientation[0]
+    state[4] = orientation[1]
+    state[5] = orientation[2]
+    return state
+
+
+def ee_3d_helix_trajectory(
+    t: float,
+    radius: float = 0.3,
+    angular_velocity: float = 0.3,
+    center: tuple = (0.4, 0.0, 0.3),
+    z_amplitude: float = 0.15,
+    z_frequency: float = 0.3,
+    orientation: tuple = (np.pi, 0.0, 0.0),
+    state_dim: int = 9,
+) -> np.ndarray:
+    """
+    End-Effector 3D 나선 궤적 (circle + sinusoidal z)
+
+    Args:
+        t: 현재 시간 (초)
+        radius: 원 반지름 (m)
+        angular_velocity: 각속도 (rad/s)
+        center: 중심 (x, y, z_center)
+        z_amplitude: z 방향 진폭 (m)
+        z_frequency: z 방향 주파수 (Hz)
+        orientation: 목표 RPY (roll, pitch, yaw)
+        state_dim: 상태 차원
+
+    Returns:
+        state: (state_dim,) - [ee_x, ee_y, ee_z, roll, pitch, yaw, 0, ...]
+    """
+    theta = angular_velocity * t
+    ee_x = center[0] + radius * np.cos(theta)
+    ee_y = center[1] + radius * np.sin(theta)
+    ee_z = center[2] + z_amplitude * np.sin(2 * np.pi * z_frequency * t)
+
+    state = np.zeros(state_dim)
+    state[0] = ee_x
+    state[1] = ee_y
+    state[2] = ee_z
+    state[3] = orientation[0]
+    state[4] = orientation[1]
+    state[5] = orientation[2]
+    return state
+
+
 def create_trajectory_function(
     trajectory_type: str, **kwargs
 ) -> Callable[[float], np.ndarray]:
@@ -212,5 +358,13 @@ def create_trajectory_function(
         return lambda t: slalom_trajectory(t, **kwargs)
     elif trajectory_type == "straight":
         return lambda t: straight_line_trajectory(t, **kwargs)
+    elif trajectory_type == "ee_circle":
+        return lambda t: ee_circle_trajectory(t, **kwargs)
+    elif trajectory_type == "ee_figure8":
+        return lambda t: ee_figure_eight_trajectory(t, **kwargs)
+    elif trajectory_type == "ee_3d_circle":
+        return lambda t: ee_3d_circle_trajectory(t, **kwargs)
+    elif trajectory_type == "ee_3d_helix":
+        return lambda t: ee_3d_helix_trajectory(t, **kwargs)
     else:
         raise ValueError(f"Unknown trajectory type: {trajectory_type}")
