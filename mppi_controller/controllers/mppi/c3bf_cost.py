@@ -118,9 +118,8 @@ class CollisionConeCBFCost(CostFunction):
             # h = <p_rel, v_rel> + ||p_rel|| · ||v_rel|| · cos(φ)
             h = dot_pv + dist_safe * v_rel_norm * cos_phi  # (K, N)
 
-            # Discrete CBF 조건: h_{t+1} - (1-α)·h_t ≥ 0
-            # h 시퀀스에서 CBF 감소 조건 확인
-            cbf_violation = np.maximum(0.0, -h)  # h < 0이면 위반
+            # Collision cone 위반: h < 0이면 속도 벡터가 충돌 콘 내부
+            cbf_violation = np.maximum(0.0, -h)
 
             costs += self.cbf_weight * np.sum(cbf_violation, axis=1)
 

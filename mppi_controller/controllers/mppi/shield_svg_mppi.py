@@ -204,7 +204,7 @@ class ShieldSVGMPPIController(SVGMPPIController):
         weights = self._compute_weights(all_costs, self.params.lambda_)
 
         # 9. ESS 계산
-        ess = 1.0 / np.sum(weights**2)
+        ess = self._compute_ess(weights)
 
         # 10. 제어 업데이트 (shielded noise로 편향 방지)
         shielded_noise = all_shielded - self.U

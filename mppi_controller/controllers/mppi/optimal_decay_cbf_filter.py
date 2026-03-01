@@ -54,6 +54,8 @@ class OptimalDecayCBFSafetyFilter(CBFSafetyFilter):
         omega_max: float = 1.0,
     ):
         super().__init__(obstacles, cbf_alpha, safety_margin)
+        assert 0.0 <= omega_min <= omega_max <= 1.0, \
+            f"omega bounds must satisfy 0 <= omega_min <= omega_max <= 1, got [{omega_min}, {omega_max}]"
         self.penalty_weight = penalty_weight
         self.omega_min = omega_min
         self.omega_max = omega_max

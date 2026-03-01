@@ -283,10 +283,13 @@ class BackupCBFSafetyFilter:
         nx = len(state)
         theta = state[2] if nx >= 3 else 0.0
 
-        J = np.zeros((nx, 2))
+        # nu 추론: model이 있으면 control_dim 사용, 없으면 diff-drive(2) 기본
+        nu = getattr(self.model, 'control_dim', 2) if self.model else 2
+
+        J = np.zeros((nx, nu))
         J[0, 0] = np.cos(theta)
         J[1, 0] = np.sin(theta)
-        if nx >= 3:
+        if nx >= 3 and nu >= 2:
             J[2, 1] = 1.0
 
         return self.dt * J

@@ -104,8 +104,11 @@ class CBFGuidedSamplingMPPIController(CBFMPPIController):
             if num_to_resample == 0:
                 break
 
-            # 위반 인덱스
-            violated_indices = np.where(violated_mask)[0][:num_to_resample]
+            # 위반 인덱스 (랜덤 샘플링으로 편향 방지)
+            all_violated_idx = np.where(violated_mask)[0]
+            violated_indices = np.random.choice(
+                all_violated_idx, size=num_to_resample, replace=False
+            )
 
             # 3. grad(h) 편향 노이즈로 리샘플
             biased_controls = self._resample_with_gradient_bias(
@@ -262,19 +265,32 @@ class CBFGuidedSamplingMPPIController(CBFMPPIController):
                 grad_y = 2.0 * dy[m, min_t[m]]
                 grad_norm = np.sqrt(grad_x**2 + grad_y**2) + 1e-10
 
-                # 정규화된 grad(h) 방향
+                # 정규화된 grad(h) 방향 (위치 공간)
                 grad_dir = np.array([grad_x / grad_norm, grad_y / grad_norm])
 
-                # 편향 크기: gradient_bias_weight * |grad_dir| 성분
-                bias = self.guided_params.gradient_bias_weight * np.abs(grad_dir[0])
+                # 위치 공간 그래디언트를 제어 공간으로 투영
+                # diff-drive: v는 [cos(θ), sin(θ)] 방향으로 이동
+                # 궤적에서 현재 heading 추출
+                theta_m = violated_trajectories[m, min_t[m], 2]
+                heading = np.array([np.cos(theta_m), np.sin(theta_m)])
 
-                # 새 노이즈 기반 리샘플
+                # v 편향: grad(h)를 heading에 투영 (양이면 전진 = 멀어짐)
+                v_bias = self.guided_params.gradient_bias_weight * np.dot(
+                    grad_dir, heading
+                )
+
+                # ω 편향: heading과 grad(h) 간의 cross product → 회전 방향
+                cross = heading[0] * grad_dir[1] - heading[1] * grad_dir[0]
+                omega_bias = self.guided_params.gradient_bias_weight * cross
+
+                # 기존 제어에 편향 혼합 (50% 기존 + 50% 새 노이즈)
                 fresh_noise = np.random.normal(0, self.params.sigma, (N, nu))
-                new_controls[m] = self.U + fresh_noise
+                new_controls[m] = 0.5 * new_controls[m] + 0.5 * (self.U + fresh_noise)
 
-                # bias: v(속도) 방향으로 편향 (장애물에서 멀어지도록)
-                # t 이후 시간스텝의 제어를 편향
-                new_controls[m, t:, 0] += bias
+                # t 이후 시간스텝에 grad(h) 편향 적용
+                new_controls[m, t:, 0] += v_bias
+                if nu > 1:
+                    new_controls[m, t:, 1] += omega_bias
 
         if self.u_min is not None and self.u_max is not None:
             new_controls = np.clip(new_controls, self.u_min, self.u_max)

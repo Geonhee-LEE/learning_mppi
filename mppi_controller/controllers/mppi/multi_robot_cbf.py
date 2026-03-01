@@ -111,8 +111,10 @@ class MultiRobotCBFCost(CostFunction):
             # barrier: h = dist² - r_eff²
             h = dist_sq - effective_r ** 2  # (K, N+1)
 
-            # barrier 위반 시 패널티 (exponential)
-            violation = np.where(h < 0, np.exp(-h * 3.0), 0.0)
+            # barrier 위반 시 패널티 (exponential, 오버플로 방지)
+            violation = np.where(
+                h < 0, np.exp(np.clip(-h * 3.0, 0, 10)), 0.0
+            )
 
             # 접근 속도 고려: 다른 로봇 방향으로 접근하면 추가 패널티
             if abs(vx_other) > 1e-6 or abs(vy_other) > 1e-6:

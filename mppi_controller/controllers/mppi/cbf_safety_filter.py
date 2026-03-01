@@ -134,8 +134,16 @@ class CBFSafetyFilter:
         if result.success:
             u_safe = result.x
         else:
-            # 최적화 실패 시 가능한 최선의 결과 사용
-            u_safe = result.x
+            # 최적화 실패 시: 제약 만족 여부 확인
+            u_candidate = result.x
+            constraints_satisfied = all(
+                c["fun"](u_candidate) >= -1e-6 for c in constraints
+            )
+            if constraints_satisfied:
+                u_safe = u_candidate
+            else:
+                # 안전하지 않은 결과 → 정지 제어 (v=0, ω=0)
+                u_safe = np.zeros_like(u_mppi)
 
         correction_norm = np.linalg.norm(u_safe - u_mppi)
 

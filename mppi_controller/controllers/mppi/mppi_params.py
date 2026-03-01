@@ -298,3 +298,96 @@ class ShieldMPPIParams(CBFMPPIParams):
         if self.shield_cbf_alpha is not None:
             assert 0 < self.shield_cbf_alpha <= 1.0, \
                 "shield_cbf_alpha must be in (0, 1]"
+
+
+@dataclass
+class DIALMPPIParams(MPPIParams):
+    """
+    DIAL-MPPI 전용 추가 파라미터
+
+    DIAL-MPC (Diffusion Annealing for MPPI) 기반 다단계 확산 어닐링.
+    표준 MPPI를 다중 반복 + 노이즈 어닐링으로 확장하여 local minima 회피.
+
+    Attributes:
+        n_diffuse_init: 첫 호출 확산 반복 횟수 (cold start)
+        n_diffuse: 런타임 확산 반복 횟수 (warm start)
+        traj_diffuse_factor: 반복 i에서 노이즈 스케일 × factor^i
+        horizon_diffuse_factor: 타임스텝 t에서 노이즈 × factor^(N-1-t)
+        sigma_scale: 기본 노이즈 스케일 승수
+        use_reward_normalization: (r-mean)/std/λ 정규화 활성화
+    """
+
+    n_diffuse_init: int = 10
+    n_diffuse: int = 3
+    traj_diffuse_factor: float = 0.5
+    horizon_diffuse_factor: float = 0.5
+    sigma_scale: float = 1.0
+    use_reward_normalization: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.n_diffuse_init > 0, "n_diffuse_init must be positive"
+        assert self.n_diffuse > 0, "n_diffuse must be positive"
+        assert 0 < self.traj_diffuse_factor <= 1.0, \
+            "traj_diffuse_factor must be in (0, 1]"
+        assert 0 < self.horizon_diffuse_factor <= 1.0, \
+            "horizon_diffuse_factor must be in (0, 1]"
+        assert self.sigma_scale > 0, "sigma_scale must be positive"
+
+
+@dataclass
+class ShieldDIALMPPIParams(DIALMPPIParams):
+    """
+    Shield-DIAL-MPPI 전용 추가 파라미터
+
+    DIAL-MPPI 어닐링 루프 + per-step CBF shield 결합.
+
+    Attributes:
+        cbf_obstacles: 장애물 리스트 [(x, y, radius), ...]
+        cbf_alpha: CBF alpha (Class-K function 파라미터)
+        cbf_safety_margin: 추가 안전 마진 (m)
+        shield_enabled: Shield 활성화 (False면 DIAL-MPPI 폴백)
+        shield_cbf_alpha: Shield용 CBF alpha
+    """
+
+    cbf_obstacles: List[tuple] = field(default_factory=list)
+    cbf_alpha: float = 0.3
+    cbf_safety_margin: float = 0.1
+    shield_enabled: bool = True
+    shield_cbf_alpha: float = 0.3
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.cbf_alpha > 0, "cbf_alpha must be positive"
+        assert self.cbf_safety_margin >= 0, "cbf_safety_margin must be non-negative"
+        assert self.shield_cbf_alpha > 0, "shield_cbf_alpha must be positive"
+
+
+@dataclass
+class AdaptiveShieldDIALMPPIParams(ShieldDIALMPPIParams):
+    """
+    Adaptive Shield-DIAL-MPPI 전용 추가 파라미터
+
+    ShieldDIALMPPIParams + 거리/속도 기반 적응형 α(d,v).
+
+    Attributes:
+        alpha_base: 기본 CBF alpha (최대값, d >> d_safe일 때)
+        alpha_dist: 최소 alpha 비율 (d << d_safe일 때 α = α_base × α_dist)
+        alpha_vel: 속도 반응 계수 (α /= (1 + α_vel·|v|))
+        k_dist: sigmoid 경사도
+        d_safe: 안전 거리 기준 (m)
+    """
+
+    alpha_base: float = 0.3
+    alpha_dist: float = 0.1
+    alpha_vel: float = 0.5
+    k_dist: float = 2.0
+    d_safe: float = 0.5
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.alpha_base > 0, "alpha_base must be positive"
+        assert self.alpha_dist >= 0, "alpha_dist must be non-negative"
+        assert self.alpha_vel >= 0, "alpha_vel must be non-negative"
+        assert self.k_dist > 0, "k_dist must be positive"
+        assert self.d_safe > 0, "d_safe must be positive"

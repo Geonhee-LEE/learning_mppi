@@ -14,6 +14,7 @@ Mathematical background, design principles, and usage for 7 safety control metho
 8. [Superellipsoid Obstacles](#8-superellipsoid-obstacles)
 9. [Method Comparison](#9-method-comparison)
 10. [Usage Guide](#10-usage-guide)
+12. [DIAL-MPPI + Learned Model Benchmark](#12-dial-mppi--learned-model-benchmark)
 
 ---
 
@@ -954,7 +955,51 @@ params = ShieldSVGMPPIParams(
 controller = ShieldSVGMPPIController(model, params)
 ```
 
-### 11.7 14-Method Benchmark
+### 11.7 Shield-DIAL-MPPI — DIAL Annealing + CBF Shield
+
+DIAL-MPPI (Diffusion Annealing)의 multi-iteration 샘플링에 per-step CBF shield를 결합합니다.
+
+```
+DIAL-MPPI:  반복 어닐링 (noise decay) → 점진적으로 최적 궤적 수렴
+Shield:     매 rollout step에서 CBF constraint → h(x) ≥ 0 보장
+Adaptive:   α(d, v) 적응형 — 거리/속도에 따라 shield 강도 조절
+```
+
+**계층 구조**:
+```
+DIALMPPIController             — 확산 어닐링 (cold/warm start)
+└── ShieldDIALMPPIController   — + per-step CBF shield
+    └── AdaptiveShieldDIALMPPIController — + 적응형 α(d,v)
+```
+
+```python
+from mppi_controller.controllers.mppi.shield_dial_mppi import (
+    ShieldDIALMPPIController,
+)
+from mppi_controller.controllers.mppi.mppi_params import ShieldDIALMPPIParams
+
+params = ShieldDIALMPPIParams(
+    N=20, dt=0.05, K=512, lambda_=1.0,
+    sigma=np.array([0.4, 0.8]),
+    Q=np.array([10.0, 10.0, 1.0]), R=np.array([0.1, 0.05]),
+    # DIAL annealing
+    n_diffuse_init=10, n_diffuse=5,
+    traj_diffuse_factor=0.6, horizon_diffuse_factor=0.5,
+    sigma_scale=1.0, use_reward_normalization=True,
+    # Shield CBF
+    cbf_obstacles=obstacles, cbf_alpha=0.3,
+    cbf_safety_margin=0.15,
+    shield_enabled=True, shield_cbf_alpha=2.0,
+)
+controller = ShieldDIALMPPIController(model, params, cost_function=cost_fn)
+```
+
+```bash
+# Shield-DIAL 4종 벤치마크 (Vanilla / DIAL / Shield-DIAL / Adaptive-DIAL)
+PYTHONPATH=. python examples/comparison/shield_dial_mppi_benchmark.py --live --K 512
+```
+
+### 11.8 14-Method Benchmark (+ DIAL variants)
 
 ```bash
 # Full benchmark (all 14 methods, dense_static scenario)
@@ -973,7 +1018,7 @@ python examples/comparison/safety_novel_benchmark_demo.py --all-scenarios
 python examples/comparison/safety_novel_benchmark_demo.py --no-plot
 ```
 
-### 11.8 Method Selection Guide
+### 11.9 Method Selection Guide
 
 | Scenario | Recommended | Why |
 |----------|------------|-----|
@@ -983,8 +1028,10 @@ python examples/comparison/safety_novel_benchmark_demo.py --no-plot
 | Mixed challenge | ShieldSVG | High sample quality + safety |
 | Real-time critical | HardCBF | Minimal compute overhead |
 | Formal guarantee needed | Gatekeeper / MPS | Infinite-time safety proof |
+| Wind + model mismatch | Shield-DIAL+EKF | 파라미터 추정 + CBF 안전 |
+| Constant external bias | Shield-DIAL+L1 | 외란 추정 + CBF 안전 |
 
-### 11.9 MPPI vs safe_control Benchmark
+### 11.10 MPPI vs safe_control Benchmark
 
 Compares our MPPI safety methods against [tkkim-robot/safe_control](https://github.com/tkkim-robot/safe_control)
 (CBF-QP, MPC-CBF) on identical obstacle avoidance scenarios.
@@ -1020,6 +1067,168 @@ Key findings:
 
 ---
 
+## 12. DIAL-MPPI + Learned Model Benchmark
+
+### 12.1 동기
+
+Shield-DIAL-MPPI는 바람 외란 하에서도 CBF로 안전을 보장하지만, kinematic 모델이 실제 마찰/바람을 모르기 때문에 **모델 미스매치로 인한 오실레이션**이 발생합니다.
+
+```
+문제:  Shield-DIAL(Kinematic 3D) → 마찰/바람 모름 → 예측≠실제 → RMSE 1.71m
+해결:  Shield-DIAL(Learned 5D)   → 마찰 추정     → 예측≈실제 → RMSE 개선
+```
+
+### 12.2 아키텍처
+
+```
+            Real World (5D DynamicKinematicAdapter)
+            c_v=0.5, c_omega=0.3 + wind sin(0.8t)
+                        |
+         +------+-------+-------+-------+
+         |      |               |       |
+    [Vanilla] [Shield-DIAL]  [+EKF]   [+L1]
+     3D kin    3D kin         5D EKF   5D L1
+     [:3]      [:3]           full     full
+                              ↓         ↓
+                         파라미터 추정  외란 추정
+                        (c_v, c_omega) (sigma_f)
+```
+
+**CBF Shield 호환성**: `_cbf_shield_batch()`가 `states[:,0:2]`(x,y)와 `states[:,2]`(θ)만 사용하므로 3D/5D 동일하게 동작합니다.
+
+### 12.3 4종 컨트롤러
+
+| # | 이름 | 모델 | state_dim | 안전 | 적응 |
+|---|------|------|-----------|------|------|
+| 1 | Vanilla | DiffDriveKinematic | 3D | 없음 | 없음 |
+| 2 | Shield-DIAL | DiffDriveKinematic | 3D | CBF Shield | 없음 |
+| 3 | Shield-DIAL+EKF | EKFAdaptiveDynamics | 5D | CBF Shield | 파라미터 추정 (매 스텝) |
+| 4 | Shield-DIAL+L1 | L1AdaptiveDynamics | 5D | CBF Shield | 외란 추정 (매 스텝) |
+
+### 12.4 3D vs 5D 처리
+
+**3D 컨트롤러** (Vanilla, Shield-DIAL):
+- `ctrl_state = state_5d[:3]` — 위치+heading만 사용
+- `ref = (N+1, 3)` — StateTrackingCost + TerminalCost
+- Q = [10, 10, 1], Qf = [20, 20, 2]
+
+**5D 컨트롤러** (EKF, L1):
+- `ctrl_state = state_5d` — 위치+heading+선속도+각속도 전부
+- `ref = (N+1, 5)` — AngleAwareTrackingCost (heading wrapping)
+- Q = [10, 10, 1, 0.1, 0.1], Qf = [20, 20, 2, 0.2, 0.2]
+- `make_5d_reference()`: 3D ref → 5D ref (v_ref, ω_ref 추정)
+
+### 12.5 시뮬레이션 루프
+
+```python
+for step in range(n_steps):
+    state_5d = world.get_full_state()
+
+    # 1. 적응 업데이트 (5D 모델만)
+    if adapt and step > 0:
+        model.update_step(prev_state_5d, prev_control, state_5d, dt)
+
+    # 2. 컨트롤러 입력 (3D/5D 분기)
+    ctrl_state = state_5d[:3] if dim == 3 else state_5d
+    ref = ref_3d if dim == 3 else make_5d_reference(ref_3d, dt)
+    control, info = controller.compute_control(ctrl_state, ref)
+
+    # 3. 실제 세계 전파 + 바람 외란
+    world.step(control, dt)
+    world.state_5d[:3] += winds[step]  # 위치만 영향
+```
+
+### 12.6 L1 파라미터 튜닝
+
+L1은 friction(상수) + wind(시변)을 단일 σ로 추정합니다. MPPI rollout(20 step) 동안 σ가 상수로 적용되므로, 시변 바람이 포함되면 예측이 악화됩니다.
+
+**해결**: 위치 성분 A_m을 거의 0으로 → 바람(위치 영향)을 무시, 마찰(속도 영향)만 추정
+
+```python
+L1AdaptiveDynamics(
+    adaptation_gain=50.0,     # Γ
+    cutoff_freq=0.3,          # ω_c (저역통과 → 바람 노이즈 제거)
+    am_gains=[-0.2, -0.2, -0.2, -10.0, -10.0],  # 위치 ≈ 0, 속도 빠르게
+)
+```
+
+| 파라미터 | 역할 | 나쁜 값 → 결과 | 좋은 값 |
+|---------|------|---------------|---------|
+| am_gains[0:3] | 위치 예측기 | -2.0 → 바람 추적 → RMSE 2.16m | -0.2 → 바람 무시 |
+| am_gains[3:5] | 속도 예측기 | -0.5 → 마찰 늦게 학습 | -10.0 → 빠른 추정 |
+| cutoff_freq | 저역통과 | 10.0 → 바람 그대로 통과 | 0.3 → 바람 필터링 |
+
+### 12.7 EKF vs L1 비교
+
+| 측면 | EKF | L1 |
+|------|-----|-----|
+| 추정 대상 | 상수 파라미터 (c_v, c_ω) | 외란 벡터 σ (5D) |
+| 바람 영향 | innovation 노이즈로 흡수 | σ에 혼입 |
+| rollout 정확도 | 높음 (상수 파라미터 정확) | 중간 (시변 성분 남음) |
+| 수렴 속도 | ~2-3초 | ~1-2초 |
+| 적합 시나리오 | 구조적 미스매치 (마찰, 관성) | 상수 외란 (bias wind, 경사) |
+
+### 12.8 벤치마크 결과
+
+**조건**: K=512, N=20, dt=0.05, 25s, wind=0.6, 8 obstacles, margin=0.15m
+
+```
+실제 세계: c_v=0.5, c_omega=0.3  (컨트롤러는 모름)
+공칭 모델: c_v=0.1, c_omega=0.1
+```
+
+| Method | RMSE | Violations | Min h(x) | Intervention | vs Shield-DIAL |
+|--------|------|-----------|----------|-------------|---------------|
+| Vanilla (3D) | 0.71m | 1 | -0.002 | — | — |
+| **Shield-DIAL (3D)** | **1.71m** | **0** | 0.002 | 6.9% | baseline |
+| **Shield-DIAL+EKF (5D)** | **0.69m** | **0** | 0.056 | 7.6% | **-60%** |
+| **Shield-DIAL+L1 (5D)** | **0.89m** | **0** | 0.005 | 8.7% | **-48%** |
+
+**핵심 발견**:
+- **EKF**: Vanilla보다 낮은 RMSE(0.69m)를 달성하면서 0 violations (최고 성능)
+- **L1**: Shield-DIAL 대비 48% RMSE 감소, 안전 유지
+- **Shield-DIAL+EKF**가 "안전하면서 정확한" 최적 조합
+
+### 12.9 적응 진단
+
+벤치마크 종료 시 적응 모델의 추정 상태:
+
+- **EKF**: ĉ_v ≈ 0.48 (실제 0.5), ĉ_ω ≈ 0.28 (실제 0.3) — 거의 정확한 추정
+- **L1**: |σ_f| ≈ 0.19 — 마찰 보상 위주의 안정된 외란 추정
+
+### 12.10 실행 방법
+
+```bash
+# Batch 실행 (플롯 저장)
+PYTHONPATH=. python examples/comparison/learned_shield_dial_benchmark.py \
+    --K 512 --duration 25 --wind 0.6
+
+# 라이브 애니메이션
+PYTHONPATH=. python examples/comparison/learned_shield_dial_benchmark.py \
+    --live --K 512 --duration 25
+
+# CLI 옵션
+#   --K 512        샘플 수 (기본: 512)
+#   --duration 25  시뮬레이션 시간 (기본: 25s)
+#   --seed 42      랜덤 시드 (기본: 42)
+#   --wind 0.6     바람 강도 (기본: 0.6)
+#   --margin 0.15  CBF 안전 마진 (기본: 0.15m)
+#   --live         실시간 애니메이션
+```
+
+### 12.11 시각화 (2x3 Grid)
+
+| 패널 | 내용 |
+|------|------|
+| [0,0] XY Trajectory | 4종 궤적 + 8 장애물 + safety margin |
+| [0,1] Tracking Error | 시간별 위치 오차 |
+| [0,2] CBF Barrier | min h(x) — h<0이면 안전 위반 |
+| [1,0] Linear Velocity | 선속도 (Shield 개입 시 감속) |
+| [1,1] RMSE Bar | 4종 RMSE + violation 표시 |
+| [1,2] Summary | RMSE/Safety/적응 진단 (EKF ĉ, L1 |σ_f|) |
+
+---
+
 ## References
 
 1. **Ames et al. (2019)** — "Control Barrier Functions: Theory and Applications" — CBF theory survey
@@ -1030,3 +1239,4 @@ Key findings:
 6. **Rimon & Koditschek (1992)** — "Exact Robot Navigation Using Artificial Potential Functions"
 7. **Yin et al. (2023)** — "Shield Model Predictive Path Integral" — Shield-MPPI
 8. **Kondo et al. (2024)** — "SVG-MPPI" — Guide particle SVGD for MPPI
+9. **Power et al. (2025)** — "DIAL-MPC: Diffusion-Inspired Annealing for MPC" (ICRA 2025 Best Paper Finalist) — DIAL-MPPI

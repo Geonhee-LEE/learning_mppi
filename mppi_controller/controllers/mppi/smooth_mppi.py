@@ -121,19 +121,20 @@ class SmoothMPPIController(MPPIController):
         weighted_delta_noise = np.sum(weights[:, None, None] * delta_noise, axis=0)
         self.delta_U = self.delta_U + weighted_delta_noise
 
-        # 10. U 업데이트 (절대 제어값 복원)
-        self.U[0, :] = self.U[0, :] + self.delta_U[0, :]
+        # 10. U 전체 시퀀스 복원 (delta_U 누적합)
+        base_u = self.U[0, :]
+        self.U = base_u[np.newaxis, :] + np.cumsum(self.delta_U, axis=0)
 
-        # 11. Receding horizon (ΔU)
+        # 11. 최적 제어 (shift 전에 저장!)
+        optimal_control = self.U[0, :].copy()
+
+        # 12. Receding horizon (ΔU)
         self.delta_U = np.roll(self.delta_U, -1, axis=0)
         self.delta_U[-1, :] = 0.0
 
-        # 12. Receding horizon (U)
+        # 13. Receding horizon (U)
         self.U = np.roll(self.U, -1, axis=0)
         self.U[-1, :] = 0.0
-
-        # 13. 최적 제어
-        optimal_control = self.U[0, :]
 
         # 제어 제약 클리핑
         if self.u_min is not None and self.u_max is not None:
