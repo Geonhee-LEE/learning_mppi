@@ -35,6 +35,16 @@ from mppi_controller.controllers.mppi.spline_mppi import SplineMPPIController
 from mppi_controller.controllers.mppi.svg_mppi import SVGMPPIController
 from mppi_controller.controllers.mppi.cbf_mppi import CBFMPPIController
 from mppi_controller.controllers.mppi.shield_mppi import ShieldMPPIController
+from mppi_controller.controllers.mppi.adaptive_shield_mppi import (
+    AdaptiveShieldMPPIController,
+)
+from mppi_controller.controllers.mppi.adaptive_shield_mppi import AdaptiveShieldParams
+from mppi_controller.controllers.mppi.shield_svg_mppi import (
+    ShieldSVGMPPIController, ShieldSVGMPPIParams,
+)
+from mppi_controller.controllers.mppi.adaptive_shield_svg_mppi import (
+    AdaptiveShieldSVGMPPIController, AdaptiveShieldSVGMPPIParams,
+)
 from mppi_controller.controllers.mppi.mppi_params import (
     MPPIParams,
     TubeMPPIParams,
@@ -291,6 +301,30 @@ class MPPIControllerNode(Node):
                 shield_enabled=self.get_parameter('shield_enabled').value,
             )
             return ShieldMPPIController(self.model, params)
+
+        elif controller_type == 'adaptive_shield':
+            params = AdaptiveShieldParams(
+                **params_dict,
+                cbf_obstacles=[],
+                cbf_alpha=self.get_parameter('cbf_alpha').value,
+                cbf_weight=self.get_parameter('cbf_weight').value,
+                cbf_safety_margin=self.get_parameter('cbf_safety_margin').value,
+                cbf_use_safety_filter=self.get_parameter('cbf_use_safety_filter').value,
+                shield_enabled=self.get_parameter('shield_enabled').value,
+            )
+            return AdaptiveShieldMPPIController(self.model, params)
+
+        elif controller_type == 'adaptive_shield_svg':
+            params = AdaptiveShieldSVGMPPIParams(
+                **params_dict,
+                cbf_obstacles=[],
+                cbf_safety_margin=self.get_parameter('cbf_safety_margin').value,
+                svgd_num_iterations=3, svgd_step_size=0.01,
+                svg_num_guide_particles=32, svg_guide_step_size=0.01,
+                shield_enabled=self.get_parameter('shield_enabled').value,
+                shield_cbf_alpha=self.get_parameter('cbf_alpha').value,
+            )
+            return AdaptiveShieldSVGMPPIController(self.model, params)
 
         else:
             self.get_logger().warn(

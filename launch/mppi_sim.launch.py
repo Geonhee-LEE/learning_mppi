@@ -20,7 +20,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     # Get package directory
-    pkg_dir = get_package_share_directory('mppi_ros2')
+    pkg_dir = get_package_share_directory('learning_mppi')
 
     # Declare launch arguments
     use_rviz = LaunchConfiguration('use_rviz', default='true')
@@ -35,7 +35,7 @@ def generate_launch_description():
 
     # Nodes
     simple_robot_simulator_node = Node(
-        package='mppi_ros2',
+        package='learning_mppi',
         executable='simple_robot_simulator',
         name='simple_robot_simulator',
         output='screen',
@@ -55,7 +55,7 @@ def generate_launch_description():
     )
 
     mppi_controller_node = Node(
-        package='mppi_ros2',
+        package='learning_mppi',
         executable='mppi_controller_node',
         name='mppi_controller',
         output='screen',
@@ -74,7 +74,7 @@ def generate_launch_description():
     )
 
     trajectory_publisher_node = Node(
-        package='mppi_ros2',
+        package='learning_mppi',
         executable='trajectory_publisher',
         name='trajectory_publisher',
         output='screen',
@@ -87,7 +87,7 @@ def generate_launch_description():
     )
 
     mppi_visualizer_node = Node(
-        package='mppi_ros2',
+        package='learning_mppi',
         executable='mppi_visualizer_node',
         name='mppi_visualizer',
         output='screen',

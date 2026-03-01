@@ -1,0 +1,46 @@
+mppi_follow_path_server:
+  ros__parameters:
+    # Node parameters
+    controller_frequency: 20.0
+    odom_frame: odom
+    robot_frame: base_link
+
+    # Model parameters
+    model_type: kinematic  # kinematic, dynamic
+    v_max: 0.5
+    omega_max: 1.9
+
+    # Controller type
+    # Options: vanilla, tube, log, tsallis, risk_aware, smooth, svmpc,
+    #          spline, svg, cbf, shield, adaptive_shield
+    controller_type: shield  # safety-first default
+
+    # MPPI core parameters
+    N: 30         # prediction horizon (timesteps)
+    dt: 0.05      # timestep [s]
+    K: 1024       # number of samples
+    lambda_: 1.0  # temperature (lower = more greedy)
+    sigma: [0.5, 0.5]  # noise std [v, omega]
+
+    # Cost weights
+    Q: [10.0, 10.0, 1.0]   # state tracking [x, y, theta]
+    R: [0.1, 0.1]           # control effort [v, omega]
+    Qf: [20.0, 20.0, 2.0]  # terminal cost
+
+    # CBF/Shield parameters
+    cbf_alpha: 0.3
+    cbf_weight: 1000.0
+    cbf_safety_margin: 0.1
+    cbf_use_safety_filter: false
+    shield_enabled: true
+
+    # Goal tolerance
+    xy_goal_tolerance: 0.25   # [m]
+    yaw_goal_tolerance: 0.25  # [rad]
+
+    # Costmap
+    costmap_topic: /local_costmap/costmap_raw
+    robot_radius: 0.22  # [m]
+
+    # LaserScan obstacle detection (alternative to costmap)
+    scan_enabled: false
