@@ -118,6 +118,7 @@ class NeuralNetworkTrainer:
         weight_decay: float = 1e-5,
         device: str = "cpu",
         save_dir: str = "models/learned_models",
+        spectral_lambda: float = 0.0,
     ):
         """
         Args:
@@ -130,6 +131,7 @@ class NeuralNetworkTrainer:
             weight_decay: L2 regularization
             device: 'cpu' or 'cuda'
             save_dir: Model save directory
+            spectral_lambda: Spectral regularization strength (0 = disabled)
         """
         self.state_dim = state_dim
         self.control_dim = control_dim
@@ -159,6 +161,12 @@ class NeuralNetworkTrainer:
 
         # Loss function
         self.criterion = nn.MSELoss()
+
+        # Spectral regularization
+        self.spectral_reg = None
+        if spectral_lambda > 0:
+            from mppi_controller.learning.spectral_regularization import SpectralRegularizer
+            self.spectral_reg = SpectralRegularizer(self.model, spectral_lambda)
 
         # Learning rate scheduler
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -235,6 +243,8 @@ class NeuralNetworkTrainer:
                 self.optimizer.zero_grad()
                 outputs = self.model(batch_inputs)
                 loss = self.criterion(outputs, batch_targets)
+                if self.spectral_reg is not None:
+                    loss = loss + self.spectral_reg.compute_penalty()
                 loss.backward()
                 self.optimizer.step()
                 train_loss += loss.item()

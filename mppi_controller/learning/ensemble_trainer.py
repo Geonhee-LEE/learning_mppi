@@ -43,6 +43,7 @@ class EnsembleTrainer:
         weight_decay: float = 1e-5,
         device: str = "cpu",
         save_dir: str = "models/learned_models",
+        spectral_lambda: float = 0.0,
     ):
         if hidden_dims is None:
             hidden_dims = [128, 128]
@@ -65,6 +66,7 @@ class EnsembleTrainer:
         # M개의 독립 MLP
         self.models = []
         self.optimizers = []
+        self.spectral_regs = []
         for _ in range(num_models):
             model = DynamicsMLPModel(
                 input_dim=input_dim,
@@ -78,6 +80,13 @@ class EnsembleTrainer:
             )
             self.models.append(model)
             self.optimizers.append(optimizer)
+
+            # Spectral regularization per model
+            if spectral_lambda > 0:
+                from mppi_controller.learning.spectral_regularization import SpectralRegularizer
+                self.spectral_regs.append(SpectralRegularizer(model, spectral_lambda))
+            else:
+                self.spectral_regs.append(None)
 
         self.criterion = nn.MSELoss()
         self.norm_stats: Optional[Dict[str, np.ndarray]] = None
@@ -150,6 +159,8 @@ class EnsembleTrainer:
                 dataset = TensorDataset(train_x, train_y)
                 loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
+                spectral_reg = self.spectral_regs[m_idx] if m_idx < len(self.spectral_regs) else None
+
                 # Train
                 model.train()
                 train_loss = 0.0
@@ -157,6 +168,8 @@ class EnsembleTrainer:
                     optimizer.zero_grad()
                     pred = model(bx)
                     loss = self.criterion(pred, by)
+                    if spectral_reg is not None:
+                        loss = loss + spectral_reg.compute_penalty()
                     loss.backward()
                     optimizer.step()
                     train_loss += loss.item()
