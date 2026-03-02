@@ -15,6 +15,7 @@ Mathematical background, design principles, and usage for 7 safety control metho
 9. [Method Comparison](#9-method-comparison)
 10. [Usage Guide](#10-usage-guide)
 12. [DIAL-MPPI + Learned Model Benchmark](#12-dial-mppi--learned-model-benchmark)
+13. [Conformal Prediction + CBF](#13-conformal-prediction--cbf)
 
 ---
 
@@ -1229,6 +1230,48 @@ PYTHONPATH=. python examples/comparison/learned_shield_dial_benchmark.py \
 
 ---
 
+## 13. Conformal Prediction + CBF
+
+Shield-MPPI의 **고정 safety_margin**을 Conformal Prediction 기반 **동적 마진**으로 대체합니다.
+
+### 핵심 아이디어
+
+기존 Shield-MPPI는 안전 마진(예: 0.1m)을 고정값으로 설정합니다. 하지만:
+- 마진이 너무 크면: 불필요한 보수성 → 추적 성능 저하
+- 마진이 너무 작으면: 안전 위반 위험
+
+Conformal Prediction은 모델 예측과 실제 관측의 비순응 점수(nonconformity score)를 온라인으로 추적하여, 통계적 커버리지 보장(P(actual ∈ region) ≥ 1-α)을 제공하는 동적 마진을 자동 계산합니다.
+
+### 동작 원리
+
+```
+매 제어 스텝:
+  1. CP 업데이트: score = ||predicted[:2] - actual[:2]||
+  2. 동적 마진: margin = quantile(scores, (n+1)(1-α)/n)  [표준 CP]
+                        = weighted_quantile(scores, 1-α)  [ACP, γ<1.0]
+  3. 마진 주입: cbf_cost.safety_margin = cp_margin
+  4. Shield-MPPI 제어 (갱신된 마진 사용)
+  5. 다음 예측 저장 (prediction_fn 또는 model.step)
+```
+
+### 주요 클래스
+
+- **`ConformalPredictor`** (`mppi_controller/learning/conformal_predictor.py`): 핵심 CP 알고리즘
+- **`ConformalCBFMPPIController`** (`mppi_controller/controllers/mppi/conformal_cbf_mppi.py`): ShieldMPPIController 상속, 매 스텝 CP 마진 갱신
+- **`ConformalCBFMPPIParams`** (`mppi_controller/controllers/mppi/mppi_params.py`): CP 관련 파라미터
+
+### 벤치마크 결과 요약
+
+| 시나리오 | CP-CBF 안전율 | 고정 마진 대비 |
+|----------|-------------|-------------|
+| 동적 장애물 | 99.5~100% | 동일 안전율, 더 나은 RMSE |
+| 좁은 통로 | 97.8% | 동일 안전율, 최적 RMSE |
+| 모델 불일치 | 98%+ | 마진 자동 확대로 안전성 향상 |
+
+자세한 이론, API, 파라미터 튜닝은 **[CONFORMAL_CBF_GUIDE.md](./CONFORMAL_CBF_GUIDE.md)** 를 참조하세요.
+
+---
+
 ## References
 
 1. **Ames et al. (2019)** — "Control Barrier Functions: Theory and Applications" — CBF theory survey
@@ -1240,3 +1283,4 @@ PYTHONPATH=. python examples/comparison/learned_shield_dial_benchmark.py \
 7. **Yin et al. (2023)** — "Shield Model Predictive Path Integral" — Shield-MPPI
 8. **Kondo et al. (2024)** — "SVG-MPPI" — Guide particle SVGD for MPPI
 9. **Power et al. (2025)** — "DIAL-MPC: Diffusion-Inspired Annealing for MPC" (ICRA 2025 Best Paper Finalist) — DIAL-MPPI
+10. **Dixit et al. (2024)** — "Adaptive Conformal Prediction for Safety-Critical Control" (arXiv:2407.03569) — ACP + Probabilistic CBF

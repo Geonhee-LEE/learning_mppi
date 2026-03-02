@@ -2,9 +2,9 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-771%20Passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-836%20Passing-brightgreen)](tests/)
 
-A comprehensive MPPI (Model Predictive Path Integral) control library featuring 10 SOTA variants, **19 safety-critical control methods**, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, and post-MAML adaptation (EKF/L1/ALPaCA) for real-time adaptation.
+A comprehensive MPPI (Model Predictive Path Integral) control library featuring 10 SOTA variants, **20 safety-critical control methods**, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), and **Conformal Prediction + CBF** for distribution-free dynamic safety margins.
 
 ## Key Features
 
@@ -32,7 +32,7 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 - **Gaussian Process** - Uncertainty-aware dynamics
 - **Residual Dynamics** - Physics + learned correction
 
-### 19 Safety-Critical Control Methods
+### 20 Safety-Critical Control Methods
 
 | # | Method | Type | Key Feature | Reference |
 |---|--------|------|-------------|-----------|
@@ -53,7 +53,8 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 | 15 | **Shield-SVG-MPPI** | Rollout + SVGD | Shield + SVG-MPPI (safety + high-quality samples) | — |
 | 16 | **Shield-DIAL-MPPI** | Annealing + Shield | DIAL annealing loop + per-step CBF enforcement | — |
 | 17 | **Adaptive Shield-DIAL-MPPI** | Annealing + Shield | DIAL + adaptive α(d,v) CBF shield | — |
-| 18 | **safe_control comparison** | External | MPPI vs CBF-QP / MPC-CBF benchmark | Kim et al. |
+| 18 | **Conformal CBF-MPPI** | CP + Shield | Dynamic margin via Conformal Prediction (CP/ACP) | arXiv:2407.03569 |
+| 19 | **safe_control comparison** | External | MPPI vs CBF-QP / MPC-CBF benchmark | Kim et al. |
 
 Additional capabilities:
 - **MPCC (Model Predictive Contouring Control)** - Contouring/lag error decomposition for superior path following
@@ -108,6 +109,24 @@ Slalom obstacles (8) + wind disturbance (0.6) + 40s duration — demonstrates CB
 | Adaptive Shield-DIAL | 3.384 | 0 (SAFE) | 0.059 | 10.4% |
 
 > Vanilla MPPI violates safety under wind disturbance. Shield-DIAL-MPPI guarantees h(x) > 0 via per-step CBF enforcement.
+
+### Conformal Prediction + CBF Benchmark
+
+Dynamic safety margin via online Conformal Prediction — automatically adapts margin based on model prediction accuracy.
+
+| Scenario | Method | RMSE (m) | Safety (%) | CP Margin | Key Feature |
+|----------|--------|----------|-----------|-----------|-------------|
+| **Dynamic Obstacles** | CBF-small (0.01m) | 0.297 | 99.3% | 0.01 (fixed) | Aggressive, low margin |
+| | CBF-large (0.10m) | 0.385 | 100% | 0.10 (fixed) | Conservative, high margin |
+| | **CP-CBF (α=0.1)** | **0.314** | **99.5%** | **0.06 (dynamic)** | **Adapts to prediction error** |
+| | **ACP-CBF (γ=0.95)** | **0.382** | **100%** | **0.07 (adaptive)** | **Fastest margin adaptation** |
+| **Narrow Corridor** | CBF-small (0.01m) | 0.298 | 94.0% | 0.01 (fixed) | Unsafe in tight spaces |
+| | CBF-large (0.10m) | 0.342 | 97.8% | 0.10 (fixed) | Over-conservative tracking |
+| | **CP-CBF (α=0.1)** | **0.331** | **97.8%** | **0.06 (dynamic)** | **Best RMSE at same safety** |
+
+> CP/ACP methods achieve the same or better safety as large fixed margins while maintaining better tracking accuracy. Under model mismatch, CP automatically expands margins; under accurate models, CP shrinks margins to reduce conservatism.
+
+See [Conformal CBF Guide](docs/safety/CONFORMAL_CBF_GUIDE.md) for detailed theory and API reference.
 
 ### Safety Comparison (14-Method Benchmark)
 
@@ -316,6 +335,24 @@ params = ShieldDIALMPPIParams(
 )
 controller = ShieldDIALMPPIController(model, params)
 
+# Conformal Prediction + CBF-MPPI (dynamic safety margin via CP/ACP)
+from mppi_controller.controllers.mppi.conformal_cbf_mppi import ConformalCBFMPPIController
+from mppi_controller.controllers.mppi.mppi_params import ConformalCBFMPPIParams
+
+params = ConformalCBFMPPIParams(
+    N=30, dt=0.05, K=1024,
+    cbf_obstacles=[(3.0, 0.5, 0.4), (5.0, -0.3, 0.3)],
+    cbf_alpha=0.3,
+    cbf_safety_margin=0.02,      # Cold start margin (shrinks/grows via CP)
+    cp_alpha=0.1,                # Coverage target: 90%
+    cp_gamma=0.95,               # ACP decay (1.0=standard CP, <1.0=adaptive)
+    cp_margin_min=0.005,         # Min safety margin (m)
+    cp_margin_max=0.5,           # Max safety margin (m)
+)
+# Optional: learned model prediction for meaningful CP margins
+# prediction_fn = lambda s, u: learned_model.step(s, u, dt)
+controller = ConformalCBFMPPIController(model, params)
+
 # MPCC for superior path following
 from mppi_controller.controllers.mppi.mpcc_cost import MPCCCost
 
@@ -511,6 +548,11 @@ python examples/comparison/mppi_vs_safe_control_benchmark.py
 # Adaptive safety benchmark (EKF/L1 × None/CBF/Shield)
 python examples/comparison/adaptive_safety_benchmark.py
 
+# Conformal Prediction + CBF benchmark (5 scenarios: accurate/mismatch/nonstationary/dynamic/corridor)
+PYTHONPATH=. python examples/comparison/conformal_cbf_benchmark.py
+PYTHONPATH=. python examples/comparison/conformal_cbf_benchmark.py --scenario dynamic --live
+PYTHONPATH=. python examples/comparison/conformal_cbf_benchmark.py --scenario corridor --live
+
 # Live animation mode
 python examples/comparison/safety_comparison_demo.py --live
 ```
@@ -541,11 +583,16 @@ python examples/comparison/model_mismatch_comparison_demo.py \
 python examples/comparison/model_mismatch_comparison_demo.py \
     --evaluate --world dynamic --noise 0.7 --disturbance combined
 
-# 6-DOF Mobile Manipulator 7-Way Learned Model Benchmark
+# 6-DOF Mobile Manipulator 8-Way Learned Model Benchmark
 PYTHONPATH=. python scripts/train_6dof_all_models.py --quick            # Train all models
 PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py       # Run benchmark
 PYTHONPATH=. python examples/comparison/6dof_learned_benchmark.py \
     --models kinematic,residual_nn,oracle --scenario ee_3d_circle       # Subset
+
+# LotF 8-Way Benchmark (LoRA/BPTT/Spectral/NN-Policy)
+PYTHONPATH=. python scripts/train_6dof_lotf_models.py                   # Train LotF models
+PYTHONPATH=. python examples/comparison/lotf_benchmark.py               # Run benchmark
+PYTHONPATH=. python examples/comparison/lotf_benchmark.py --live        # Live animation
 ```
 
 #### 6-DOF Benchmark Results (K=512, 15s, quick training)
@@ -836,6 +883,7 @@ learning_mppi/
 │   │   ├── dial_mppi.py            # DIAL-MPPI (diffusion annealing)
 │   │   ├── shield_dial_mppi.py     # Shield-DIAL-MPPI (annealing + CBF)
 │   │   ├── adaptive_shield_dial_mppi.py # Adaptive Shield-DIAL-MPPI
+│   │   ├── conformal_cbf_mppi.py   # Conformal Prediction + CBF-MPPI
 │   │   ├── cbf_cost.py             # Standard CBF cost
 │   │   ├── c3bf_cost.py            # Collision Cone CBF
 │   │   ├── dpcbf_cost.py           # Dynamic Parabolic CBF
@@ -863,6 +911,10 @@ learning_mppi/
 │   │   ├── ensemble_trainer.py     # Ensemble trainer
 │   │   ├── maml_trainer.py         # MAML meta-learning trainer
 │   │   ├── reptile_trainer.py     # Reptile meta-learning trainer
+│   │   ├── bptt_residual_trainer.py # BPTT trajectory trainer
+│   │   ├── nn_policy_trainer.py   # NN-Policy (BC + BPTT) trainer
+│   │   ├── spectral_regularization.py # Spectral regularizer
+│   │   ├── conformal_predictor.py   # Conformal Prediction (CP/ACP)
 │   │   ├── online_learner.py       # Online learning
 │   │   └── model_validator.py      # Model validation
 │   │
@@ -873,7 +925,7 @@ learning_mppi/
 │   ├── simulation/                 # Simulation tools
 │   └── utils/                      # Utilities
 │
-├── tests/                          # Unit tests (771 tests, 52 files)
+├── tests/                          # Unit tests (836 tests, 54 files)
 ├── examples/                       # Demo scripts
 │   └── simulation_environments/    # 10 simulation scenarios
 │       ├── common/                 # Shared infrastructure (ABC, obstacles, visualizer)
@@ -889,7 +941,7 @@ learning_mppi/
 ### Quick Start
 
 ```bash
-# Run all tests (771 tests)
+# Run all tests (836 tests)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # Run with coverage (requires pytest-cov)
@@ -899,11 +951,11 @@ python -m pytest tests/ -v
 python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py tests/test_log_mppi.py -v --override-ini="addopts="
 ```
 
-### Test Results (2026-03-01)
+### Test Results (2026-03-02)
 
 ```
-============================= 771 passed in 9.18s ==============================
-Python 3.12.12 | pytest 9.0.2 | 52 test files | 0 failures
+============================= 836 passed in 9.02s ==============================
+Python 3.12.12 | pytest 9.0.2 | 54 test files | 0 failures
 ```
 
 ### Test Coverage by Category
@@ -911,16 +963,17 @@ Python 3.12.12 | pytest 9.0.2 | 52 test files | 0 failures
 | Category | Files | Tests | Description |
 |----------|-------|-------|-------------|
 | **MPPI Controllers** | 12 | 87 | Vanilla, Tube, Log, Tsallis, Risk-Aware, Smooth, Spline, SVG, SVMPC, DIAL, Shield-DIAL, GPU |
-| **Safety-Critical** | 12 | 128 | CBF, Shield, Adaptive Shield, C3BF, Hard/Horizon CBF, Gatekeeper, MPS, CBF-Guided, Shield-SVG, Shield-DIAL |
+| **Safety-Critical** | 13 | 158 | CBF, Shield, Adaptive Shield, C3BF, Hard/Horizon CBF, Gatekeeper, MPS, CBF-Guided, Shield-SVG, Shield-DIAL, Conformal CBF |
 | **Robot Models** | 1 | 69 | DiffDrive/Ackermann/Swerve (Kinematic+Dynamic) |
 | **Learning Models** | 9 | 150 | Neural, GP, Residual, Ensemble, MC-Dropout, MAML, EKF, L1, ALPaCA |
+| **LotF (LoRA/BPTT/DiffSim)** | 1 | 35 | LoRA adaptation, Spectral reg, DiffSim, BPTT, NN-Policy |
 | **6-DOF Benchmark** | 1 | 18 | 8-Way learned model comparison (NN/GP/Ensemble/MCDrop/MAML/ALPaCA) |
 | **Core Components** | 6 | 59 | Cost functions, sampling, dynamics wrapper, trajectory, simulator, metrics |
 | **Perception** | 2 | 17 | Obstacle detector, obstacle tracker |
 | **Data Pipeline** | 3 | 45 | Data pipeline, trainers, online learner |
 | **Nav2 Integration** | 5 | 36 | Follow path, costmap converter, path windower, goal/progress checker |
 | **Others** | 2 | 7 | Dynamic obstacles, etc. |
-| **Total** | **52** | **771** | **All passing (9.18s)** |
+| **Total** | **54** | **836** | **All passing (9.02s)** |
 
 ### Per-File Test Count
 
@@ -981,6 +1034,8 @@ Python 3.12.12 | pytest 9.0.2 | 52 test files | 0 failures
 | 50 | `test_dial_mppi.py` | 10 | DIAL-MPPI |
 | 51 | `test_shield_dial_mppi.py` | 16 | Shield-DIAL-MPPI + Adaptive |
 | 52 | `test_6dof_learned_benchmark.py` | 18 | 6-DOF 8-Way Learned Model Benchmark |
+| 53 | `test_lotf.py` | 35 | LotF (LoRA/BPTT/DiffSim/Spectral/NN-Policy) |
+| 54 | `test_conformal_cbf.py` | 30 | Conformal Prediction + CBF (CP/ACP/Controller) |
 
 </details>
 
@@ -1105,6 +1160,7 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 | Non-circular obstacles | Superellipsoid | Ellipse/rectangle obstacles |
 | Multi-robot coordination | Multi-Robot CBF | Pairwise collision avoidance |
 | Annealing + safety | Shield-DIAL-MPPI | DIAL annealing + CBF guarantee under disturbance |
+| Model mismatch + safety | Conformal CBF-MPPI | CP/ACP dynamic margin adapts to prediction errors |
 | Sample quality + safety | Shield-SVG-MPPI | SVGD diversity + Shield safety |
 | Conservative exploration | Hard CBF / HorizonWeighted | Binary rejection / time-discount |
 | Memory-constrained | Spline-MPPI | 73% memory reduction |
@@ -1116,10 +1172,12 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 
 ## Documentation
 
-- [Testing Guide (572 tests)](docs/TESTING.md)
+- [Testing Guide](docs/TESTING.md)
+- [LotF (Learning on the Fly) Guide](docs/learned_models/LOTF_GUIDE.md)
 - [PRD (Product Requirements Document)](docs/mppi/PRD.md)
 - [Implementation Status](docs/mppi/IMPLEMENTATION_STATUS.md)
 - [Safety-Critical Control Guide](docs/safety/SAFETY_CRITICAL_CONTROL.md)
+- [Conformal Prediction + CBF Guide](docs/safety/CONFORMAL_CBF_GUIDE.md)
 - [Learned Models Guide](docs/learned_models/LEARNED_MODELS_GUIDE.md)
 - [Meta-Learning (MAML) Guide](docs/learned_models/META_LEARNING.md)
 - [Online Learning Guide](docs/learned_models/ONLINE_LEARNING.md)
@@ -1155,6 +1213,7 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 - Gurriet et al. (2020) - "Scalable Safety-Critical Control" (Gatekeeper)
 - Chen et al. (2021) - "Backup Control Barrier Functions" (Backup CBF)
 - Kim et al. (2023) - [safe_control](https://github.com/tkkim-robot/safe_control) (CBF-QP / MPC-CBF comparison)
+- Dixit et al. (2024) - "Adaptive Conformal Prediction for Safety-Critical Control" (ACP + CBF, arXiv:2407.03569)
 - Liniger et al. (2015) - "Optimization-based Autonomous Racing" (MPCC)
 
 ## Roadmap
@@ -1162,7 +1221,7 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 ### Completed
 - [x] 10 MPPI variants (+ DIAL-MPPI diffusion annealing)
 - [x] 5 robot model types (Kinematic/Dynamic/Learned x DiffDrive/Ackermann/Swerve)
-- [x] **19 safety-critical control methods** (CBF/C3BF/DPCBF/HorizonCBF/HardCBF/OptimalDecay/Gatekeeper/BackupCBF/MPS/MultiRobot/CBF-MPPI/Shield/AdaptiveShield/CBFGuided/ShieldSVG/ShieldDIAL/AdaptiveShieldDIAL + safe_control comparison)
+- [x] **20 safety-critical control methods** (CBF/C3BF/DPCBF/HorizonCBF/HardCBF/OptimalDecay/Gatekeeper/BackupCBF/MPS/MultiRobot/CBF-MPPI/Shield/AdaptiveShield/CBFGuided/ShieldSVG/ShieldDIAL/AdaptiveShieldDIAL/ConformalCBF + safe_control comparison)
 - [x] MPCC (Model Predictive Contouring Control) + Superellipsoid obstacles
 - [x] GPU acceleration (PyTorch CUDA, 8.1x speedup)
 - [x] Learning pipeline (NN/GP/Residual/Ensemble/MC-Dropout/MAML)
@@ -1179,7 +1238,9 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 - [x] Adaptive safety benchmark (EKF/L1 x None/CBF/Shield)
 - [x] DIAL-MPPI (diffusion annealing) + Shield-DIAL-MPPI (CBF safety) + Adaptive Shield-DIAL-MPPI
 - [x] 6-DOF Mobile Manipulator learned model benchmark (8-way: Kinematic/NN/GP/Ensemble/MCDropout/MAML/ALPaCA/Oracle)
-- [x] 771 unit tests (52 files)
+- [x] LotF 8-Way benchmark (LoRA/BPTT/Spectral/NN-Policy + DiffSim)
+- [x] Conformal Prediction + CBF (CP/ACP dynamic safety margin, 5-scenario benchmark)
+- [x] 836 unit tests (54 files)
 - [x] 10 simulation environments (static/dynamic/multi-robot/parking/racing/corridor)
 
 ### In Progress

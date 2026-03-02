@@ -1,6 +1,6 @@
 # MPPI ROS2 - Claude 개발 가이드
 
-## 📊 프로젝트 현황 (2026-03-01)
+## 📊 프로젝트 현황 (2026-03-02)
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -9,8 +9,8 @@
 │  ✓ Phase 1: 기구학 모델 및 Vanilla MPPI                   │
 │  ✓ Phase 2: 동역학 모델 (마찰/관성)                       │
 │  ✓ Phase 3: MPPI 변형 10종 + 19 Safety-Critical Control   │
-│  ✓ Phase 4: 학습 모델 9종 (Neural/GP/Residual/Ensemble/   │
-│             MC-Dropout/MAML/EKF/L1/ALPaCA) + 온라인 학습   │
+│  ✓ Phase 4: 학습 모델 10종 (Neural/GP/Residual/Ensemble/  │
+│             MC-Dropout/MAML/EKF/L1/ALPaCA/LoRA) + 온라인   │
 │  ✓ GPU 가속: RTX 5080 K=8192→8.1x speedup                │
 │  ✓ 로봇 모델: DiffDrive/Ackermann/Swerve (Kin+Dyn)       │
 │  ✓ MAML 메타 학습: MAML-5D RMSE 0.055m (noise=0.7)       │
@@ -26,8 +26,14 @@
 │    바람 외란 시나리오에서 Shield 100% 안전 보장            │
 │  ✓ 6-DOF 학습 모델 벤치마크: 8-Way 비교                   │
 │    NN/GP/Ensemble/MCDropout/MAML/ALPaCA × 2 시나리오      │
+│  ✓ LotF 통합: LoRA + Spectral Reg + BPTT + DiffSim       │
+│    LoRA 적응(~10% 파라미터), 궤적 수준 BPTT 잔차 학습     │
+│  ✓ NN-Policy (BPTT): BC + BPTT fine-tune 직접 제어 정책   │
+│    MPPI 없이 NN이 (state, ee_ref) → control 출력           │
+│  ✓ Conformal Prediction + CBF: CP/ACP 동적 안전 마진       │
+│    모델 정확→마진축소, 부정확→마진확대 (분포-무관 보장)    │
 │                                                            │
-│  771 tests (52 files), ~33,000+ lines                      │
+│  836 tests (54 files), ~36,000+ lines                      │
 ├────────────────────────────────────────────────────────────┤
 │  → 다음: ROS2 통합 (M4) 또는 C++ 포팅                     │
 └────────────────────────────────────────────────────────────┘
@@ -103,7 +109,8 @@ learning_mppi/
 │   ├── models/                   # 로봇 동역학 모델
 │   │   ├── differential_drive/   # 차동 구동 (v, omega)
 │   │   ├── swerve_drive/         # 스워브 구동
-│   │   └── non_coaxial_swerve/   # 비동축 스워브
+│   │   ├── non_coaxial_swerve/   # 비동축 스워브
+│   │   └── differentiable/       # PyTorch 미분가능 시뮬레이터
 │   ├── controllers/
 │   │   ├── mppi/                 # MPPI 알고리즘
 │   │   │   ├── base_mppi.py      # Vanilla MPPI
@@ -118,6 +125,7 @@ learning_mppi/
 │   │   │   ├── dial_mppi.py     # DIAL-MPPI (확산 어닐링)
 │   │   │   ├── shield_dial_mppi.py # Shield-DIAL-MPPI
 │   │   │   ├── adaptive_shield_dial_mppi.py # Adaptive Shield-DIAL
+│   │   │   ├── conformal_cbf_mppi.py # CP+Shield-MPPI (동적 마진)
 │   │   │   ├── cost_functions.py # 비용 함수
 │   │   │   ├── sampling.py       # 노이즈 샘플러
 │   │   │   ├── dynamics_wrapper.py # 배치 동역학
@@ -195,7 +203,8 @@ MPPIController (base_mppi.py) — Vanilla MPPI
 │
 ├── CBFMPPIController          ── CBF 비용 + QP 필터
 │   ├── ShieldMPPIController   ── per-step CBF enforcement
-│   │   └── AdaptiveShieldMPPIController ── 거리/속도 적응형 α
+│   │   ├── AdaptiveShieldMPPIController ── 거리/속도 적응형 α
+│   │   └── ConformalCBFMPPIController ── CP/ACP 동적 안전 마진
 │   └── CBFGuidedSamplingMPPIController ── 거부 샘플링 + ∇h 편향
 │
 ├── Safety Cost Functions (CostFunction ABC):
@@ -349,13 +358,13 @@ M5: C++ 포팅
 
 ## 테스트 및 검증
 
-### 테스트 현황 (2026-03-01)
-- **771 tests** / **52 files** / **9.18s** / **0 failures**
+### 테스트 현황 (2026-03-02)
+- **836 tests** / **54 files** / **~10s** / **0 failures**
 - Python 3.12.12, pytest 9.0.2
 
 ### 테스트 실행
 ```bash
-# 전체 테스트 (771개)
+# 전체 테스트 (836개)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # 카테고리별 실행
@@ -372,9 +381,10 @@ python -m pytest tests/test_base_mppi.py::test_circle_tracking -v --override-ini
 | 카테고리 | 파일 수 | 테스트 수 | 주요 검증 항목 |
 |---------|---------|----------|--------------|
 | MPPI 컨트롤러 | 12 | 87 | 10종 변형 알고리즘 동작 + GPU (DIAL/Shield-DIAL 포함) |
-| Safety-Critical | 12 | 128 | 19종 안전 제어 (CBF/Shield/Gatekeeper/Shield-DIAL 등) |
+| Safety-Critical | 13 | 158 | 20종 안전 제어 (CBF/Shield/Gatekeeper/Shield-DIAL/Conformal-CBF 등) |
 | 로봇 모델 | 1 | 69 | 3종 × 2 (Kin/Dyn) 모델 |
 | 학습 모델 | 9 | 150 | NN/GP/MAML/EKF/L1/ALPaCA 등 |
+| LotF (LoRA/BPTT/DiffSim) | 1 | 35 | LoRA 적응, Spectral 정규화, 미분가능 시뮬레이터, BPTT 학습, NN-Policy |
 | 6-DOF 벤치마크 | 1 | 18 | 8-Way 학습 모델 비교 (NN/GP/Ensemble/MCDrop/MAML/ALPaCA) |
 | 코어 컴포넌트 | 6 | 59 | 비용함수, 샘플링, 궤적 등 |
 | Nav2 통합 | 5 | 36 | FollowPath, Costmap, PathWindower |

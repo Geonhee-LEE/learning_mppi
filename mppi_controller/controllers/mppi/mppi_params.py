@@ -301,6 +301,34 @@ class ShieldMPPIParams(CBFMPPIParams):
 
 
 @dataclass
+class ConformalCBFMPPIParams(ShieldMPPIParams):
+    """
+    Conformal Prediction + Shield-MPPI 파라미터
+
+    CP 기반 동적 안전 마진으로 Shield-MPPI의 고정 마진을 대체.
+    - 모델 정확 시: 마진 축소 → 성능 향상
+    - 모델 부정확 시: 마진 확대 → 안전성 향상
+    """
+
+    cp_alpha: float = 0.1  # CP 실패율 (0.1 → 90%)
+    cp_window_size: int = 200  # 슬라이딩 윈도우
+    cp_min_samples: int = 10  # 최소 샘플
+    cp_gamma: float = 0.95  # ACP 감쇠 (1.0=표준)
+    cp_margin_min: float = 0.02  # 최소 마진 (m)
+    cp_margin_max: float = 0.5  # 최대 마진 (m)
+    cp_score_type: str = "position_norm"
+    cp_enabled: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert 0 < self.cp_alpha < 1, "cp_alpha must be in (0, 1)"
+        assert self.cp_window_size > 0, "cp_window_size must be positive"
+        assert 0 < self.cp_gamma <= 1, "cp_gamma must be in (0, 1]"
+        assert self.cp_margin_max > self.cp_margin_min >= 0, \
+            "cp_margin_max must be > cp_margin_min >= 0"
+
+
+@dataclass
 class DIALMPPIParams(MPPIParams):
     """
     DIAL-MPPI 전용 추가 파라미터

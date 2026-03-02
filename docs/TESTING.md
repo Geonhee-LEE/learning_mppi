@@ -2,16 +2,16 @@
 
 ## Overview
 
-learning_mppi는 771개의 단위 테스트를 통해 모든 MPPI 변형, 안전 제어, 로봇 모델, 학습 모델의 정확성을 검증합니다.
+learning_mppi는 836개의 단위 테스트를 통해 모든 MPPI 변형, 안전 제어, 로봇 모델, 학습 모델의 정확성을 검증합니다.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  Test Summary (2026-03-01)                       │
+│  Test Summary (2026-03-02)                       │
 ├──────────────────────────────────────────────────┤
-│  Total:      771 tests                           │
-│  Files:      52 test files                       │
+│  Total:      836 tests                           │
+│  Files:      54 test files                       │
 │  Status:     ALL PASSED                          │
-│  Duration:   9.18 seconds                        │
+│  Duration:   ~10 seconds                         │
 │  Python:     3.12.12                             │
 │  Framework:  pytest 9.0.2                        │
 │  Failures:   0                                   │
@@ -67,9 +67,9 @@ python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py tests/test_log_
   tests/test_gpu_mppi.py -v --override-ini="addopts="
 ```
 
-### 2. Safety-Critical Control (12 files, 128 tests)
+### 2. Safety-Critical Control (13 files, 158 tests)
 
-16종 안전 제어 방법의 장애물 회피 및 안전성을 검증합니다.
+20종 안전 제어 방법의 장애물 회피 및 안전성을 검증합니다.
 
 | Test File | Tests | 검증 항목 |
 |-----------|-------|----------|
@@ -84,13 +84,14 @@ python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py tests/test_log_
 | `test_safety_advanced.py` | 20 | C3BF, DPCBF, Optimal-Decay CBF 고급 안전 |
 | `test_safety_s3.py` | 23 | Backup CBF, Multi-Robot CBF, MPCC, MPS |
 | `test_gatekeeper_superellipsoid.py` | 19 | Gatekeeper 안전 Shield + 비원형 장애물 |
+| `test_conformal_cbf.py` | 30 | CP/ACP 동적 마진, 커버리지 보장, ConformalCBFMPPIController |
 
 ```bash
 # Safety-Critical 전체 테스트
 python -m pytest tests/test_cbf_mppi.py tests/test_shield_mppi.py tests/test_adaptive_shield.py \
   tests/test_adaptive_shield_svg.py tests/test_shield_svg_mppi.py tests/test_cbf_guided_sampling.py \
   tests/test_hard_cbf.py tests/test_horizon_cbf.py tests/test_safety_advanced.py \
-  tests/test_safety_s3.py tests/test_gatekeeper_superellipsoid.py \
+  tests/test_safety_s3.py tests/test_gatekeeper_superellipsoid.py tests/test_conformal_cbf.py \
   -v --override-ini="addopts="
 ```
 
@@ -106,9 +107,9 @@ python -m pytest tests/test_cbf_mppi.py tests/test_shield_mppi.py tests/test_ada
 python -m pytest tests/test_robot_models.py -v --override-ini="addopts="
 ```
 
-### 4. Learning Models (9 files, 150 tests)
+### 4. Learning Models (10 files, 180 tests)
 
-9종 학습 기반 동역학 모델의 학습/추론/적응을 검증합니다.
+10종 학습 기반 동역학 모델의 학습/추론/적응을 검증합니다.
 
 | Test File | Tests | 검증 항목 |
 |-----------|-------|----------|
@@ -121,13 +122,14 @@ python -m pytest tests/test_robot_models.py -v --override-ini="addopts="
 | `test_ekf_dynamics.py` | 18 | EKF: 확장 칼만 필터, 파라미터 추정, 온라인 적응 |
 | `test_l1_adaptive.py` | 17 | L1 Adaptive: 외란 추정, low-pass 필터, 적응 제어 |
 | `test_alpaca.py` | 23 | ALPaCA: 베이지안 선형 회귀, 사후 업데이트, 불확실성 |
+| `test_lotf.py` | 35 | LotF: LoRA 적응, Spectral 정규화, 미분가능 시뮬레이터, BPTT 학습, NN-Policy |
 
 ```bash
 # 학습 모델 전체 테스트
 python -m pytest tests/test_neural_dynamics.py tests/test_gaussian_process_dynamics.py \
   tests/test_residual_dynamics.py tests/test_ensemble_validator_uncertainty.py \
   tests/test_mc_dropout_checkpoint.py tests/test_maml.py tests/test_ekf_dynamics.py \
-  tests/test_l1_adaptive.py tests/test_alpaca.py \
+  tests/test_l1_adaptive.py tests/test_alpaca.py tests/test_lotf.py \
   -v --override-ini="addopts="
 ```
 
@@ -226,6 +228,7 @@ tests/
 ├── test_safety_advanced.py        # C3BF/DPCBF/OptDecay
 ├── test_safety_s3.py              # Backup CBF/Multi-Robot/MPCC
 ├── test_gatekeeper_superellipsoid.py  # Gatekeeper + 비원형 장애물
+├── test_conformal_cbf.py          # CP/ACP 동적 안전 마진
 ├── test_mps.py                    # Model Predictive Shield
 ├── test_robot_models.py           # 3종 × 2 로봇 모델
 ├── test_neural_dynamics.py        # Neural NN 동역학
@@ -249,6 +252,7 @@ tests/
 ├── test_trainers.py               # NN/GP 트레이너
 ├── test_online_learner.py         # 온라인 학습
 ├── test_6dof_learned_benchmark.py  # 6-DOF 학습 모델 8-Way 벤치마크
+├── test_lotf.py                   # LotF: LoRA/Spectral/DiffSim/BPTT/NN-Policy
 ├── test_dynamic_obstacles.py      # 동적 장애물
 ├── test_gpu_mppi.py               # GPU 가속
 ├── test_follow_path_integration.py    # Nav2 FollowPath
@@ -262,7 +266,7 @@ tests/
 
 1. **명명 규칙**: `test_<module>.py` 파일, `test_<function>` 함수
 2. **외부 의존성 없음**: ROS2, GPU, 외부 서비스 없이 실행 가능
-3. **빠른 실행**: 전체 771개 테스트 ~9초 완료
+3. **빠른 실행**: 전체 836개 테스트 ~10초 완료
 4. **pytest 설정**: `pyproject.toml`의 `[tool.pytest.ini_options]` 참조
 
 ### pyproject.toml 설정
