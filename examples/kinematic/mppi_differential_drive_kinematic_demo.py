@@ -49,6 +49,7 @@ def main():
     parser.add_argument("--live", action="store_true", help="Live animation mode")
     parser.add_argument("--noise", type=float, default=0.0, help="Process noise std")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--no-plot", action="store_true", help="Disable plot display")
 
     args = parser.parse_args()
 
@@ -142,6 +143,10 @@ def main():
         print("=" * 60 + "\n")
 
         # 11. 시각화
+        if args.no_plot:
+            import matplotlib
+            matplotlib.use("Agg")
+
         visualizer = SimulationVisualizer()
         fig = visualizer.plot_results(
             history,
@@ -149,8 +154,9 @@ def main():
             title=f"MPPI - {args.trajectory.capitalize()} Trajectory",
         )
 
-        import matplotlib.pyplot as plt
-        plt.show()
+        if not args.no_plot:
+            import matplotlib.pyplot as plt
+            plt.show()
 
 
 if __name__ == "__main__":

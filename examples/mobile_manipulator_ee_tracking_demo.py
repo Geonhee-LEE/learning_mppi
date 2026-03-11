@@ -345,6 +345,7 @@ def main():
     parser.add_argument("--live", action="store_true", help="Live animation mode")
     parser.add_argument("--K", type=int, default=1024, help="Number of samples")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--no-plot", action="store_true", help="Disable plot display")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -396,7 +397,7 @@ def main():
     print(f"  Initial EE:   ({ee_init[0]:.2f}, {ee_init[1]:.2f})")
     print(f"  L1={model.L1}m, L2={model.L2}m, reach={model.L1+model.L2}m\n")
 
-    if args.live:
+    if args.live and not args.no_plot:
         run_live(model, controller, traj_fn, initial_state, params, args.duration)
     else:
         # 시뮬레이션 실행

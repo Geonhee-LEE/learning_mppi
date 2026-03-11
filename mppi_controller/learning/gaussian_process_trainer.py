@@ -7,119 +7,126 @@ GPyTorch 기반 GP 학습 및 불확실성 정량화.
 
 import numpy as np
 import torch
-import gpytorch
 from typing import Dict, List, Optional, Tuple
 import os
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-
-class ExactGPModel(gpytorch.models.ExactGP):
-    """
-    Exact GP Model for single output dimension
-
-    Uses RBF kernel with automatic relevance determination (ARD).
-    """
-
-    def __init__(
-        self,
-        train_x: torch.Tensor,
-        train_y: torch.Tensor,
-        likelihood: gpytorch.likelihoods.GaussianLikelihood,
-        kernel_type: str = "rbf",
-        use_ard: bool = True,
-    ):
-        super().__init__(train_x, train_y, likelihood)
-
-        input_dim = train_x.shape[-1]
-
-        # Mean
-        self.mean_module = gpytorch.means.ConstantMean()
-
-        # Kernel
-        if kernel_type == "rbf":
-            if use_ard:
-                self.covar_module = gpytorch.kernels.ScaleKernel(
-                    gpytorch.kernels.RBFKernel(ard_num_dims=input_dim)
-                )
-            else:
-                self.covar_module = gpytorch.kernels.ScaleKernel(
-                    gpytorch.kernels.RBFKernel()
-                )
-        elif kernel_type == "matern":
-            if use_ard:
-                self.covar_module = gpytorch.kernels.ScaleKernel(
-                    gpytorch.kernels.MaternKernel(nu=2.5, ard_num_dims=input_dim)
-                )
-            else:
-                self.covar_module = gpytorch.kernels.ScaleKernel(
-                    gpytorch.kernels.MaternKernel(nu=2.5)
-                )
-        else:
-            raise ValueError(f"Unknown kernel type: {kernel_type}")
-
-    def forward(self, x):
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+try:
+    import gpytorch
+    HAS_GPYTORCH = True
+except ImportError:
+    HAS_GPYTORCH = False
 
 
-class SparseGPModel(gpytorch.models.ApproximateGP):
-    """
-    Sparse GP Model using variational inference
+# GP model classes are defined only when gpytorch is available
+if HAS_GPYTORCH:
 
-    More efficient for large datasets.
-    """
+    class ExactGPModel(gpytorch.models.ExactGP):
+        """
+        Exact GP Model for single output dimension
 
-    def __init__(
-        self,
-        inducing_points: torch.Tensor,
-        kernel_type: str = "rbf",
-        use_ard: bool = True,
-    ):
-        variational_distribution = gpytorch.variational.CholeskyVariationalDistribution(
-            inducing_points.size(0)
-        )
-        variational_strategy = gpytorch.variational.VariationalStrategy(
+        Uses RBF kernel with automatic relevance determination (ARD).
+        """
+
+        def __init__(
             self,
-            inducing_points,
-            variational_distribution,
-            learn_inducing_locations=True,
-        )
+            train_x: torch.Tensor,
+            train_y: torch.Tensor,
+            likelihood: gpytorch.likelihoods.GaussianLikelihood,
+            kernel_type: str = "rbf",
+            use_ard: bool = True,
+        ):
+            super().__init__(train_x, train_y, likelihood)
 
-        super().__init__(variational_strategy)
+            input_dim = train_x.shape[-1]
 
-        input_dim = inducing_points.shape[-1]
+            # Mean
+            self.mean_module = gpytorch.means.ConstantMean()
 
-        # Mean
-        self.mean_module = gpytorch.means.ConstantMean()
-
-        # Kernel
-        if kernel_type == "rbf":
-            if use_ard:
-                self.covar_module = gpytorch.kernels.ScaleKernel(
-                    gpytorch.kernels.RBFKernel(ard_num_dims=input_dim)
-                )
+            # Kernel
+            if kernel_type == "rbf":
+                if use_ard:
+                    self.covar_module = gpytorch.kernels.ScaleKernel(
+                        gpytorch.kernels.RBFKernel(ard_num_dims=input_dim)
+                    )
+                else:
+                    self.covar_module = gpytorch.kernels.ScaleKernel(
+                        gpytorch.kernels.RBFKernel()
+                    )
+            elif kernel_type == "matern":
+                if use_ard:
+                    self.covar_module = gpytorch.kernels.ScaleKernel(
+                        gpytorch.kernels.MaternKernel(nu=2.5, ard_num_dims=input_dim)
+                    )
+                else:
+                    self.covar_module = gpytorch.kernels.ScaleKernel(
+                        gpytorch.kernels.MaternKernel(nu=2.5)
+                    )
             else:
-                self.covar_module = gpytorch.kernels.ScaleKernel(
-                    gpytorch.kernels.RBFKernel()
-                )
-        elif kernel_type == "matern":
-            if use_ard:
-                self.covar_module = gpytorch.kernels.ScaleKernel(
-                    gpytorch.kernels.MaternKernel(nu=2.5, ard_num_dims=input_dim)
-                )
-            else:
-                self.covar_module = gpytorch.kernels.ScaleKernel(
-                    gpytorch.kernels.MaternKernel(nu=2.5)
-                )
-        else:
-            raise ValueError(f"Unknown kernel type: {kernel_type}")
+                raise ValueError(f"Unknown kernel type: {kernel_type}")
 
-    def forward(self, x):
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+        def forward(self, x):
+            mean_x = self.mean_module(x)
+            covar_x = self.covar_module(x)
+            return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+    class SparseGPModel(gpytorch.models.ApproximateGP):
+        """
+        Sparse GP Model using variational inference
+
+        More efficient for large datasets.
+        """
+
+        def __init__(
+            self,
+            inducing_points: torch.Tensor,
+            kernel_type: str = "rbf",
+            use_ard: bool = True,
+        ):
+            variational_distribution = gpytorch.variational.CholeskyVariationalDistribution(
+                inducing_points.size(0)
+            )
+            variational_strategy = gpytorch.variational.VariationalStrategy(
+                self,
+                inducing_points,
+                variational_distribution,
+                learn_inducing_locations=True,
+            )
+
+            super().__init__(variational_strategy)
+
+            input_dim = inducing_points.shape[-1]
+
+            # Mean
+            self.mean_module = gpytorch.means.ConstantMean()
+
+            # Kernel
+            if kernel_type == "rbf":
+                if use_ard:
+                    self.covar_module = gpytorch.kernels.ScaleKernel(
+                        gpytorch.kernels.RBFKernel(ard_num_dims=input_dim)
+                    )
+                else:
+                    self.covar_module = gpytorch.kernels.ScaleKernel(
+                        gpytorch.kernels.RBFKernel()
+                    )
+            elif kernel_type == "matern":
+                if use_ard:
+                    self.covar_module = gpytorch.kernels.ScaleKernel(
+                        gpytorch.kernels.MaternKernel(nu=2.5, ard_num_dims=input_dim)
+                    )
+                else:
+                    self.covar_module = gpytorch.kernels.ScaleKernel(
+                        gpytorch.kernels.MaternKernel(nu=2.5)
+                    )
+            else:
+                raise ValueError(f"Unknown kernel type: {kernel_type}")
+
+        def forward(self, x):
+            mean_x = self.mean_module(x)
+            covar_x = self.covar_module(x)
+            return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
 
 class GaussianProcessTrainer:
@@ -156,6 +163,12 @@ class GaussianProcessTrainer:
             device: 'cpu' or 'cuda'
             save_dir: Model save directory
         """
+        if not HAS_GPYTORCH:
+            raise ImportError(
+                "gpytorch is required for GP training. "
+                "Install with: pip install gpytorch>=1.11.0"
+            )
+
         self.state_dim = state_dim
         self.control_dim = control_dim
         self.kernel_type = kernel_type

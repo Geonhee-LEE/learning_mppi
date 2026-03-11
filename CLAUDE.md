@@ -427,15 +427,18 @@ python -m pytest tests/test_base_mppi.py::test_circle_tracking -v --override-ini
 - 목표 경로
 
 ### 데모 실행
+
+> 전체 튜토리얼은 [docs/TUTORIALS.md](docs/TUTORIALS.md) 참조
+
 ```bash
 # Vanilla MPPI
-python examples/mppi_basic_demo.py --trajectory circle --live
+python examples/kinematic/mppi_differential_drive_kinematic_demo.py --trajectory circle --no-plot
 
 # MPPI 변형 비교
 python examples/mppi_all_variants_benchmark.py --live --trajectory figure8
 
 # Tube-MPPI vs Vanilla
-python examples/mppi_vanilla_vs_tube_demo.py --live --noise 1.0
+PYTHONPATH=. python examples/comparison/vanilla_vs_tube_demo.py --live --noise 1.0
 
 # Uncertainty-Aware MPPI 벤치마크
 PYTHONPATH=. python examples/comparison/uncertainty_mppi_benchmark.py --scenario mismatch

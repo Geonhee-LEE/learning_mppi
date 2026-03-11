@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--duration", type=float, default=20.0)
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--no-plot", action="store_true", help="Disable plot display")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -95,14 +96,19 @@ def main():
         print(f"Mean Solve Time: {metrics['mean_solve_time']:.2f}ms")
         print("=" * 60 + "\n")
 
+        if args.no_plot:
+            import matplotlib
+            matplotlib.use("Agg")
+
         visualizer = SimulationVisualizer()
         fig = visualizer.plot_results(
             history, metrics,
             title=f"Swerve Drive MPPI - {args.trajectory.capitalize()}",
         )
 
-        import matplotlib.pyplot as plt
-        plt.show()
+        if not args.no_plot:
+            import matplotlib.pyplot as plt
+            plt.show()
 
 
 if __name__ == "__main__":

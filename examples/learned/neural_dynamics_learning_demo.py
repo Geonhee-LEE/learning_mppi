@@ -9,6 +9,16 @@ Neural Dynamics Learning Demo
 4. 성능 비교 (물리 모델 vs 학습 모델)
 """
 
+import sys
+import os
+
+# 프로젝트 루트를 Python 경로에 추가
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+if "--no-plot" in sys.argv:
+    import matplotlib
+    matplotlib.use("Agg")
+
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
@@ -379,6 +389,7 @@ def main():
     parser.add_argument("--duration", type=float, default=30.0, help="Simulation duration (s)")
     parser.add_argument("--epochs", type=int, default=100, help="Training epochs")
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size")
+    parser.add_argument("--no-plot", action="store_true", help="Disable plot display")
 
     args = parser.parse_args()
 

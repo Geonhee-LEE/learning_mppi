@@ -504,6 +504,7 @@ def main():
     parser.add_argument("--dial", action="store_true",
                         help="Use DIAL-MPPI (Diffusion Annealing) for smoother control")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--no-plot", action="store_true", help="Disable plot display")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -583,7 +584,7 @@ def main():
     print(f"  Initial EE:   ({ee_init[0]:.3f}, {ee_init[1]:.3f}, {ee_init[2]:.3f})")
     print(f"  z_mount={model.z_mount}m\n")
 
-    if args.live:
+    if args.live and not args.no_plot:
         run_live(model, controller, traj_fn, initial_state, params, args.duration,
                  ema_alpha=args.ema)
     else:

@@ -33,6 +33,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ml = [
+    "torch>=2.0.0",
+    "gpytorch>=1.11.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",

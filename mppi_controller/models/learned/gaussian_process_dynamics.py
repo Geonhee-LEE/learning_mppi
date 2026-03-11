@@ -9,6 +9,12 @@ import torch
 from mppi_controller.models.base_model import RobotModel
 from typing import Optional, Tuple, Dict
 
+try:
+    import gpytorch
+    HAS_GPYTORCH = True
+except ImportError:
+    HAS_GPYTORCH = False
+
 
 class GaussianProcessDynamics(RobotModel):
     """
@@ -58,6 +64,12 @@ class GaussianProcessDynamics(RobotModel):
         model_path: Optional[str] = None,
         device: str = "cpu",
     ):
+        if not HAS_GPYTORCH:
+            raise ImportError(
+                "gpytorch is required for GaussianProcessDynamics. "
+                "Install with: pip install gpytorch>=1.11.0"
+            )
+
         self._state_dim = state_dim
         self._control_dim = control_dim
         self.device = torch.device(device)

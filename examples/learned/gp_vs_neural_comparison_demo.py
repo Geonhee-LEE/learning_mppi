@@ -9,6 +9,16 @@ GP와 Neural Network 학습 모델 비교:
 4. MPPI 제어 성능
 """
 
+import sys
+import os
+
+# 프로젝트 루트를 Python 경로에 추가
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+if "--no-plot" in sys.argv:
+    import matplotlib
+    matplotlib.use("Agg")
+
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
@@ -438,6 +448,7 @@ def main():
     parser.add_argument("--gp-iterations", type=int, default=100)
     parser.add_argument("--data-fraction", type=float, default=1.0,
                        help="Fraction of data to use (test data efficiency)")
+    parser.add_argument("--no-plot", action="store_true", help="Disable plot display")
 
     args = parser.parse_args()
 
