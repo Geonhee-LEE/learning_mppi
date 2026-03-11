@@ -2,16 +2,16 @@
 
 ## Overview
 
-learning_mppi는 836개의 단위 테스트를 통해 모든 MPPI 변형, 안전 제어, 로봇 모델, 학습 모델의 정확성을 검증합니다.
+learning_mppi는 870개의 단위 테스트를 통해 모든 MPPI 변형, 안전 제어, 로봇 모델, 학습 모델의 정확성을 검증합니다.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  Test Summary (2026-03-02)                       │
+│  Test Summary (2026-03-07)                       │
 ├──────────────────────────────────────────────────┤
-│  Total:      836 tests                           │
-│  Files:      54 test files                       │
+│  Total:      890 tests                           │
+│  Files:      57 test files                       │
 │  Status:     ALL PASSED                          │
-│  Duration:   ~10 seconds                         │
+│  Duration:   ~12 seconds                         │
 │  Python:     3.12.12                             │
 │  Framework:  pytest 9.0.2                        │
 │  Failures:   0                                   │
@@ -42,9 +42,9 @@ python -m pytest tests/ -k "shield" -v --override-ini="addopts="
 
 ## Test Categories
 
-### 1. MPPI Controllers (10 files, 61 tests)
+### 1. MPPI Controllers (12 files, 97 tests)
 
-9종 MPPI 변형 알고리즘의 핵심 동작을 검증합니다.
+12종 MPPI 변형 알고리즘의 핵심 동작을 검증합니다.
 
 | Test File | Tests | 검증 항목 |
 |-----------|-------|----------|
@@ -58,18 +58,21 @@ python -m pytest tests/ -k "shield" -v --override-ini="addopts="
 | `test_svg_mppi.py` | 6 | SVG-MPPI: guide particle, SVGD 커널, 정확도 |
 | `test_stein_variational_mppi.py` | 6 | SVMPC: Stein variational, SPSA gradient, 다양성 |
 | `test_gpu_mppi.py` | 7 | GPU: CUDA 가용성, CPU fallback, 배치 처리 |
+| `test_uncertainty_mppi.py` | 16 | Uncertainty MPPI: 적응 샘플링, 3전략, sigma 스케일링, 통계 |
+| `test_c2u_mppi.py` | 20 | **C2U-MPPI: Unscented Transform, σ-point 전파, ChanceConstraintCost, 유효 반경** |
 
 ```bash
 # MPPI 컨트롤러 전체 테스트
 python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py tests/test_log_mppi.py \
   tests/test_tsallis_mppi.py tests/test_risk_aware_mppi.py tests/test_smooth_mppi.py \
   tests/test_spline_mppi.py tests/test_svg_mppi.py tests/test_stein_variational_mppi.py \
-  tests/test_gpu_mppi.py -v --override-ini="addopts="
+  tests/test_gpu_mppi.py tests/test_uncertainty_mppi.py tests/test_c2u_mppi.py \
+  -v --override-ini="addopts="
 ```
 
-### 2. Safety-Critical Control (13 files, 158 tests)
+### 2. Safety-Critical Control (14 files, 176 tests)
 
-20종 안전 제어 방법의 장애물 회피 및 안전성을 검증합니다.
+22종 안전 제어 방법의 장애물 회피 및 안전성을 검증합니다.
 
 | Test File | Tests | 검증 항목 |
 |-----------|-------|----------|
@@ -85,6 +88,7 @@ python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py tests/test_log_
 | `test_safety_s3.py` | 23 | Backup CBF, Multi-Robot CBF, MPCC, MPS |
 | `test_gatekeeper_superellipsoid.py` | 19 | Gatekeeper 안전 Shield + 비원형 장애물 |
 | `test_conformal_cbf.py` | 30 | CP/ACP 동적 마진, 커버리지 보장, ConformalCBFMPPIController |
+| `test_neural_cbf.py` | 18 | **Neural CBF: MLP h(x) 학습, 비볼록 장애물 분류, Cost/Filter/MPPI 통합** |
 
 ```bash
 # Safety-Critical 전체 테스트
@@ -92,7 +96,7 @@ python -m pytest tests/test_cbf_mppi.py tests/test_shield_mppi.py tests/test_ada
   tests/test_adaptive_shield_svg.py tests/test_shield_svg_mppi.py tests/test_cbf_guided_sampling.py \
   tests/test_hard_cbf.py tests/test_horizon_cbf.py tests/test_safety_advanced.py \
   tests/test_safety_s3.py tests/test_gatekeeper_superellipsoid.py tests/test_conformal_cbf.py \
-  -v --override-ini="addopts="
+  tests/test_neural_cbf.py -v --override-ini="addopts="
 ```
 
 ### 3. Robot Models (1 file, 69 tests)
@@ -217,6 +221,8 @@ tests/
 ├── test_spline_mppi.py            # B-spline 메모리 절감
 ├── test_svg_mppi.py               # SVG guide particle
 ├── test_stein_variational_mppi.py # SVMPC SVGD 다양성
+├── test_uncertainty_mppi.py      # Uncertainty-Aware 적응 샘플링
+├── test_c2u_mppi.py              # C2U-MPPI: UT 공분산 전파 + Chance Constraint
 ├── test_cbf_mppi.py               # CBF 비용+QP 필터
 ├── test_shield_mppi.py            # Shield rollout 안전성
 ├── test_adaptive_shield.py        # α(d,v) 적응형 Shield
@@ -229,6 +235,7 @@ tests/
 ├── test_safety_s3.py              # Backup CBF/Multi-Robot/MPCC
 ├── test_gatekeeper_superellipsoid.py  # Gatekeeper + 비원형 장애물
 ├── test_conformal_cbf.py          # CP/ACP 동적 안전 마진
+├── test_neural_cbf.py             # Neural CBF: MLP h(x) 학습, 비볼록 장애물
 ├── test_mps.py                    # Model Predictive Shield
 ├── test_robot_models.py           # 3종 × 2 로봇 모델
 ├── test_neural_dynamics.py        # Neural NN 동역학
@@ -266,7 +273,7 @@ tests/
 
 1. **명명 규칙**: `test_<module>.py` 파일, `test_<function>` 함수
 2. **외부 의존성 없음**: ROS2, GPU, 외부 서비스 없이 실행 가능
-3. **빠른 실행**: 전체 836개 테스트 ~10초 완료
+3. **빠른 실행**: 전체 890개 테스트 ~12초 완료
 4. **pytest 설정**: `pyproject.toml`의 `[tool.pytest.ini_options]` 참조
 
 ### pyproject.toml 설정
@@ -287,8 +294,9 @@ addopts = "-v --cov=mppi_controller --cov-report=term-missing"
 | 위치 추적 RMSE | < 0.2m (원형 궤적) | 0.005~0.006m (SVG/Vanilla) |
 | 계산 시간 | < 100ms (K=1024, N=30) | 5.0ms (Vanilla) |
 | 실시간성 | 10Hz 제어 주기 | 200Hz+ 달성 가능 |
-| 안전성 | 0 collision (14종) | 100% 달성 |
-| 테스트 실행 시간 | < 30s | 7.13s |
+| 안전성 | 0 collision (22종) | 100% 달성 |
+| C2U 안전 여유 | MinClr > 0.4m | 0.4~0.97m |
+| 테스트 실행 시간 | < 30s | ~12s |
 
 ## Troubleshooting
 

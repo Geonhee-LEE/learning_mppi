@@ -9,18 +9,25 @@ Shield-MPPI의 고정 안전 마진을 Conformal Prediction 기반 동적 마진
 Reference: ACP + Probabilistic CBF (arXiv:2407.03569)
 """
 
+from __future__ import annotations
+
 import numpy as np
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mppi_controller.controllers.mppi.cost_functions import CostFunction
 
 from mppi_controller.controllers.mppi.mppi_params import ConformalCBFMPPIParams
 from mppi_controller.controllers.mppi.shield_mppi import ShieldMPPIController
-from mppi_controller.controllers.mppi.cost_functions import CostFunction
 from mppi_controller.controllers.mppi.sampling import NoiseSampler
 from mppi_controller.learning.conformal_predictor import (
     ConformalPredictor,
     ConformalPredictorConfig,
 )
 from mppi_controller.models.base_model import RobotModel
+
+# prediction_fn: (state, control) -> next_state
+PredictionFn = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 
 class ConformalCBFMPPIController(ShieldMPPIController):
@@ -48,7 +55,7 @@ class ConformalCBFMPPIController(ShieldMPPIController):
         params: ConformalCBFMPPIParams,
         cost_function: Optional[CostFunction] = None,
         noise_sampler: Optional[NoiseSampler] = None,
-        prediction_fn: Optional[Callable] = None,
+        prediction_fn: Optional[PredictionFn] = None,
     ):
         super().__init__(model, params, cost_function, noise_sampler)
 
