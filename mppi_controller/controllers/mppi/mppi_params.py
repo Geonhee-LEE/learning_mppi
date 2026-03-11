@@ -329,6 +329,39 @@ class ConformalCBFMPPIParams(ShieldMPPIParams):
 
 
 @dataclass
+class UncertaintyMPPIParams(MPPIParams):
+    """
+    Uncertainty-Aware MPPI 전용 추가 파라미터
+
+    모델 불확실성에 비례하여 샘플링 노이즈를 적응 조절.
+
+    Attributes:
+        exploration_factor: 불확실성→노이즈 변환 계수
+        min_sigma_ratio: 최소 sigma 비율 (base 대비)
+        max_sigma_ratio: 최대 sigma 비율 (base 대비)
+        uncertainty_strategy: 불확실성 추정 전략
+            - "previous_trajectory": 직전 최적 궤적 재사용 (기본, 비용 0)
+            - "current_state": 현재 상태 불확실성으로 전역 스케일
+            - "two_pass": 1차 rollout → 불확실성 → 2차 적응 rollout
+    """
+
+    exploration_factor: float = 1.0
+    min_sigma_ratio: float = 0.3
+    max_sigma_ratio: float = 3.0
+    uncertainty_strategy: str = "previous_trajectory"
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.exploration_factor >= 0, "exploration_factor must be non-negative"
+        assert self.min_sigma_ratio > 0, "min_sigma_ratio must be positive"
+        assert self.max_sigma_ratio >= self.min_sigma_ratio, \
+            "max_sigma_ratio must be >= min_sigma_ratio"
+        assert self.uncertainty_strategy in (
+            "previous_trajectory", "current_state", "two_pass"
+        ), f"Unknown uncertainty_strategy: {self.uncertainty_strategy}"
+
+
+@dataclass
 class DIALMPPIParams(MPPIParams):
     """
     DIAL-MPPI 전용 추가 파라미터
@@ -419,3 +452,49 @@ class AdaptiveShieldDIALMPPIParams(ShieldDIALMPPIParams):
         assert self.alpha_vel >= 0, "alpha_vel must be non-negative"
         assert self.k_dist > 0, "k_dist must be positive"
         assert self.d_safe > 0, "d_safe must be positive"
+
+
+@dataclass
+class C2UMPPIParams(MPPIParams):
+    """
+    C2U-MPPI (Chance-Constrained Unscented MPPI) 전용 파라미터
+
+    Unscented Transform으로 비선형 공분산 전파 + 확률적 기회 제약조건.
+
+    Attributes:
+        ut_alpha: σ-point 분산 스케일 (작을수록 평균 근처 집중)
+        ut_beta: 사전 분포 정보 (가우시안=2)
+        ut_kappa: 2차 스케일링 파라미터
+        chance_alpha: 충돌 허용 확률 상한 P(collision) ≤ chance_alpha
+        chance_cost_weight: 기회 제약 위반 비용 가중치
+        cc_obstacles: 원형 장애물 리스트 [(x, y, radius), ...]
+        cc_margin_factor: κ_α 스케일 조정 계수 (1.0 = 이론적 정확)
+        propagation_mode: "nominal" (1회 UT) | "per_sample" (K회 UT)
+        process_noise_scale: 프로세스 노이즈 Q = scale * I
+    """
+
+    # Unscented Transform
+    ut_alpha: float = 1e-3
+    ut_beta: float = 2.0
+    ut_kappa: float = 0.0
+
+    # Chance Constraint
+    chance_alpha: float = 0.05
+    chance_cost_weight: float = 500.0
+    cc_obstacles: List[tuple] = field(default_factory=list)
+    cc_margin_factor: float = 1.0
+
+    # Propagation
+    propagation_mode: str = "nominal"
+    process_noise_scale: float = 0.01
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.ut_alpha > 0, "ut_alpha must be positive"
+        assert self.ut_beta >= 0, "ut_beta must be non-negative"
+        assert 0 < self.chance_alpha < 1, "chance_alpha must be in (0, 1)"
+        assert self.chance_cost_weight >= 0, "chance_cost_weight must be non-negative"
+        assert self.cc_margin_factor > 0, "cc_margin_factor must be positive"
+        assert self.propagation_mode in ("nominal", "per_sample"), \
+            f"Unknown propagation_mode: {self.propagation_mode}"
+        assert self.process_noise_scale >= 0, "process_noise_scale must be non-negative"

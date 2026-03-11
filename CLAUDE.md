@@ -1,6 +1,6 @@
 # MPPI ROS2 - Claude 개발 가이드
 
-## 📊 프로젝트 현황 (2026-03-02)
+## 📊 프로젝트 현황 (2026-03-04)
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -8,7 +8,7 @@
 ├────────────────────────────────────────────────────────────┤
 │  ✓ Phase 1: 기구학 모델 및 Vanilla MPPI                   │
 │  ✓ Phase 2: 동역학 모델 (마찰/관성)                       │
-│  ✓ Phase 3: MPPI 변형 10종 + 19 Safety-Critical Control   │
+│  ✓ Phase 3: MPPI 변형 12종 + 21 Safety-Critical Control   │
 │  ✓ Phase 4: 학습 모델 10종 (Neural/GP/Residual/Ensemble/  │
 │             MC-Dropout/MAML/EKF/L1/ALPaCA/LoRA) + 온라인   │
 │  ✓ GPU 가속: RTX 5080 K=8192→8.1x speedup                │
@@ -32,8 +32,14 @@
 │    MPPI 없이 NN이 (state, ee_ref) → control 출력           │
 │  ✓ Conformal Prediction + CBF: CP/ACP 동적 안전 마진       │
 │    모델 정확→마진축소, 부정확→마진확대 (분포-무관 보장)    │
+│  ✓ Uncertainty-Aware MPPI: 불확실성 적응 샘플링            │
+│    3전략 (prev_traj/cur_state/two_pass), Clean +59%        │
+│  ✓ Neural CBF: MLP 학습 기반 h(x) barrier function        │
+│    비볼록 장애물 대응, Cost/Filter drop-in 대체            │
+│  ✓ C2U-MPPI: Unscented Transform + Chance Constraint       │
+│    UT 공분산 전파 + P(collision)≤α 기회 제약, r_eff 동적   │
 │                                                            │
-│  836 tests (54 files), ~36,000+ lines                      │
+│  890 tests (57 files), ~39,000+ lines                      │
 ├────────────────────────────────────────────────────────────┤
 │  → 다음: ROS2 통합 (M4) 또는 C++ 포팅                     │
 └────────────────────────────────────────────────────────────┘
@@ -63,6 +69,8 @@
   - Smooth MPPI ✓
   - Spline-MPPI ✓
   - SVG-MPPI ✓
+  - Uncertainty-Aware MPPI ✓ (2026-03-04)
+  - C2U-MPPI (UT + Chance Constraint) ✓ (2026-03-11)
 
 - [x] **M3.6: 학습 모델 고도화** (Phase 4) - ✅ **완료** (2026-02-07)
   - NeuralDynamics (PyTorch MLP) ✓
@@ -126,6 +134,11 @@ learning_mppi/
 │   │   │   ├── shield_dial_mppi.py # Shield-DIAL-MPPI
 │   │   │   ├── adaptive_shield_dial_mppi.py # Adaptive Shield-DIAL
 │   │   │   ├── conformal_cbf_mppi.py # CP+Shield-MPPI (동적 마진)
+│   │   │   ├── uncertainty_mppi.py # Uncertainty-Aware MPPI
+│   │   │   ├── c2u_mppi.py       # C2U-MPPI (UT + Chance Constraint)
+│   │   │   ├── chance_constraint_cost.py # 확률적 기회 제약 비용
+│   │   │   ├── neural_cbf_cost.py  # Neural CBF 비용 함수
+│   │   │   ├── neural_cbf_filter.py # Neural CBF 안전 필터
 │   │   │   ├── cost_functions.py # 비용 함수
 │   │   │   ├── sampling.py       # 노이즈 샘플러
 │   │   │   ├── dynamics_wrapper.py # 배치 동역학
@@ -197,6 +210,11 @@ MPPIController (base_mppi.py) — Vanilla MPPI
 ├── SVGMPPIController          ── Guide particle SVGD
 │   └── ShieldSVGMPPIController ── Shield + SVG 결합
 │
+├── UncertaintyMPPIController   ── 불확실성 적응 샘플링
+│
+├── C2UMPPIController           ── UT 공분산 전파 + Chance Constraint
+│   └── ChanceConstraintCost   ── r_eff = r + κ_α√Σ 확률 제약 비용
+│
 ├── DIALMPPIController         ── 확산 어닐링 (multi-iter + noise decay)
 │   └── ShieldDIALMPPIController ── Shield + DIAL 결합
 │       └── AdaptiveShieldDIALMPPIController ── α(d,v) 적응형
@@ -209,13 +227,16 @@ MPPIController (base_mppi.py) — Vanilla MPPI
 │
 ├── Safety Cost Functions (CostFunction ABC):
 │   ├── ControlBarrierCost     ── 기본 CBF 비용
+│   ├── NeuralBarrierCost      ── Neural CBF 비용 (학습 h(x), 비볼록 대응)
 │   ├── HorizonWeightedCBFCost ── 시간 할인 CBF (γ^t)
 │   ├── HardCBFCost            ── 이진 거부 (h<0 → 1e6)
 │   ├── CollisionConeCBFCost   ── 속도 인지 C3BF
-│   └── DynamicParabolicCBFCost ── LoS 적응형 DPCBF
+│   ├── DynamicParabolicCBFCost ── LoS 적응형 DPCBF
+│   └── ChanceConstraintCost   ── r_eff = r + κ_α√Σ (C2U-MPPI)
 │
 └── Safety Filters (post-processing):
     ├── CBFSafetyFilter        ── 기본 QP 필터
+    ├── NeuralCBFSafetyFilter  ── Neural CBF QP 필터 (autograd Lie deriv)
     ├── OptimalDecayCBFSafetyFilter ── 이완형 CBF
     ├── BackupCBFSafetyFilter  ── 민감도 전파
     ├── Gatekeeper             ── 백업 궤적 안전 검증
@@ -358,13 +379,13 @@ M5: C++ 포팅
 
 ## 테스트 및 검증
 
-### 테스트 현황 (2026-03-02)
-- **836 tests** / **54 files** / **~10s** / **0 failures**
+### 테스트 현황 (2026-03-11)
+- **890 tests** / **57 files** / **~12s** / **0 failures**
 - Python 3.12.12, pytest 9.0.2
 
 ### 테스트 실행
 ```bash
-# 전체 테스트 (836개)
+# 전체 테스트 (852개)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # 카테고리별 실행
@@ -380,8 +401,8 @@ python -m pytest tests/test_base_mppi.py::test_circle_tracking -v --override-ini
 ### 테스트 카테고리
 | 카테고리 | 파일 수 | 테스트 수 | 주요 검증 항목 |
 |---------|---------|----------|--------------|
-| MPPI 컨트롤러 | 12 | 87 | 10종 변형 알고리즘 동작 + GPU (DIAL/Shield-DIAL 포함) |
-| Safety-Critical | 13 | 158 | 20종 안전 제어 (CBF/Shield/Gatekeeper/Shield-DIAL/Conformal-CBF 등) |
+| MPPI 컨트롤러 | 14 | 123 | 12종 변형 알고리즘 동작 + GPU (DIAL/Shield-DIAL/Uncertainty/C2U 포함) |
+| Safety-Critical | 14 | 176 | 22종 안전 제어 (CBF/Shield/Gatekeeper/Shield-DIAL/Conformal-CBF/Neural-CBF 등) |
 | 로봇 모델 | 1 | 69 | 3종 × 2 (Kin/Dyn) 모델 |
 | 학습 모델 | 9 | 150 | NN/GP/MAML/EKF/L1/ALPaCA 등 |
 | LotF (LoRA/BPTT/DiffSim) | 1 | 35 | LoRA 적응, Spectral 정규화, 미분가능 시뮬레이터, BPTT 학습, NN-Policy |
@@ -415,6 +436,14 @@ python examples/mppi_all_variants_benchmark.py --live --trajectory figure8
 
 # Tube-MPPI vs Vanilla
 python examples/mppi_vanilla_vs_tube_demo.py --live --noise 1.0
+
+# Uncertainty-Aware MPPI 벤치마크
+PYTHONPATH=. python examples/comparison/uncertainty_mppi_benchmark.py --scenario mismatch
+PYTHONPATH=. python examples/comparison/uncertainty_mppi_benchmark.py --all-scenarios
+
+# C2U-MPPI 벤치마크 (3-Way: Vanilla vs UncMPPI vs C2U)
+PYTHONPATH=. python examples/comparison/c2u_mppi_benchmark.py --scenario noisy
+PYTHONPATH=. python examples/comparison/c2u_mppi_benchmark.py --all-scenarios
 ```
 
 ## 커밋 및 PR 규칙

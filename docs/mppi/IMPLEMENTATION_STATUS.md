@@ -1,7 +1,7 @@
 # MPPI 구현 현황
 
-**날짜**: 2026-02-21 (Updated)
-**상태**: Phase 4 + Safety + GPU + MAML + Post-MAML + 최적화 완료 ✅
+**날짜**: 2026-03-11 (Updated)
+**상태**: Phase 4 + Safety + GPU + MAML + Post-MAML + 최적화 + C2U-MPPI 완료 ✅
 
 ## 구현 완료 변형
 
@@ -73,6 +73,40 @@
 - **커밋**: bedfec0
 - **파라미터**: `svg_num_guide_particles` (G=32)
 
+### M3.5d: Uncertainty-Aware MPPI ✅
+- **파일**: `mppi_controller/controllers/mppi/uncertainty_mppi.py`
+- **특징**: 모델 불확실성에 비례하여 샘플링 노이즈 적응 조절
+- **성능**: Clean RMSE +59% (two_pass), Mismatch RMSE +16% (vs Vanilla)
+- **핵심**: `UncertaintyAwareSampler` + `UncertaintyMPPIController`
+- **전략**: 3가지
+  - `previous_trajectory`: 직전 최적 궤적 재사용 (추가 비용 0)
+  - `current_state`: 현재 상태 불확실성으로 전역 스케일
+  - `two_pass`: 1차 rollout → 불확실성 추정 → 2차 적응 rollout
+- **시그마 공식**: `σ_t = clip(1 + α·mean(std_t)/mean(σ_base), min, max) × σ_base`
+
+### M3.5e: C2U-MPPI (Chance-Constrained Unscented MPPI) ✅
+- **파일**: `mppi_controller/controllers/mppi/c2u_mppi.py`
+- **특징**: Unscented Transform 비선형 공분산 전파 + 확률적 기회 제약
+- **성능**: 노이즈 "강"에서 유일 무충돌, MinClearance Vanilla 대비 5~20x
+- **핵심 구성**:
+  - `UnscentedTransform`: σ-point 생성/전파/공분산 복원
+  - `C2UMPPIController(MPPIController)`: UT + CC 통합 MPPI
+  - `ChanceConstraintCost(CostFunction)`: r_eff = r + κ_α·√(trace(Σ_pos))
+  - `C2UMPPIParams(MPPIParams)`: UT/CC 전용 파라미터
+- **수학**:
+  - σ-point: μ ± √((n+λ)P), 가중치 W_m, W_c
+  - Chance Constraint: P(collision) ≤ α → κ_α = Φ⁻¹(1-α)
+  - α=0.05 → κ≈1.645, α=0.01 → κ≈2.326
+- **propagation_mode**: "nominal" (O(N), 기본) / "per_sample" (O(K·N))
+- **벤치마크 결과** (3-Way, 8s × 3 시드):
+
+| 노이즈 | Vanilla 충돌 | UncMPPI 충돌 | C2U 충돌 |
+|--------|-------------|-------------|---------|
+| 없음 | 0 | 0 | 0 |
+| 중 | 2 | 0 | 0 |
+| 강 | 24 | 3 | **0** |
+| 극강 | 56 | 32 | **10** |
+
 ## Phase 4: 학습 모델 고도화 ✅
 
 ### M3.6a: Neural Dynamics ✅
@@ -137,6 +171,8 @@
 | **SVMPC** | 0.009 | 113 | 샘플 품질 (SPSA) | 고품질 제어 |
 | **Spline** | 0.018 | 41 | 메모리 효율 | 메모리 제약 |
 | **SVG** | 0.007 | 273 | SVGD 고속화 | 품질+속도 균형 |
+| **Uncertainty** | 0.006 | 3 | 적응 σ (two_pass) | 모델 불일치 환경 |
+| **C2U-MPPI** | 0.024 | 3.7 | UT 공분산 + CC | 고노이즈 안전 우선 |
 
 ### 학습 모델 성능
 
@@ -243,7 +279,7 @@ f9052de - feat: add Tube-MPPI with ancillary controller
 - Bhardwaj et al. (2024) - "Spline-MPPI"
 - Kondo et al. (2024) - "SVG-MPPI"
 
-## Safety-Critical Control (8종) ✅
+## Safety-Critical Control (8종 + Neural CBF) ✅
 
 | # | Method | 파일 | 핵심 |
 |---|--------|------|------|
@@ -255,6 +291,55 @@ f9052de - feat: add Tube-MPPI with ancillary controller
 | 6 | Backup CBF | `backup_cbf_filter.py` | Sensitivity propagation multi-constraint QP |
 | 7 | Multi-Robot CBF | `multi_robot_cbf.py` | Pairwise inter-robot collision avoidance |
 | 8 | Shield-MPPI | `shield_mppi.py` | Per-timestep analytical CBF enforcement |
+| 9 | **Neural CBF** | `neural_cbf_cost.py` + `neural_cbf_filter.py` | **MLP h(x) 학습, 비볼록 장애물 대응** |
+
+### Neural CBF 상세 ✅ (2026-03-07)
+
+학습 기반 Control Barrier Function — MLP로 h(x) barrier를 학습하여 임의 형상 장애물 대응.
+
+**파일 구성:**
+- `mppi_controller/learning/neural_cbf_trainer.py` — NeuralCBFNetwork + Trainer (~350 LOC)
+- `mppi_controller/controllers/mppi/neural_cbf_cost.py` — NeuralBarrierCost (~100 LOC)
+- `mppi_controller/controllers/mppi/neural_cbf_filter.py` — NeuralCBFSafetyFilter (~120 LOC)
+- `tests/test_neural_cbf.py` — 18 tests (~400 LOC)
+- `examples/comparison/neural_cbf_benchmark.py` — 벤치마크 (~280 LOC)
+
+**네트워크 아키텍처:**
+- Input: state (x, y, θ) → MLP [128, 128, 64] → Softplus → tanh 스케일링
+- Output: h(x) ∈ [-5, +5], h>0 안전, h<0 위험
+- 파라미터: 25,345개 (~99 KB)
+- Gradient: autograd ∂h/∂x (Lie derivative 계산용)
+
+**학습 손실 (4항):**
+```
+L = L_safe + L_unsafe + 0.5·L_boundary + 0.01·L_grad
+L_safe    = mean(max(0, margin - h(x_safe))²)
+L_unsafe  = mean(max(0, h(x_unsafe) + margin)²)
+L_boundary = mean(h(x_boundary)²)
+L_grad    = mean((||∂h/∂x|| - 1)²)  at boundary
+```
+
+**성능 벤치마크:**
+
+| 메트릭 | Analytical CBF | Neural CBF | Neural + Filter |
+|--------|---------------|------------|-----------------|
+| 충돌 | 0 | 0 | 0 |
+| 최소 장애물 거리 | 0.430m | 0.146m | - |
+| 목표 도달 오차 | 1.872m | 1.286m | 2.330m |
+| 계산 시간 | 1.1ms | 1.7ms | 1.3ms |
+| 경로 길이 | 4.01m | 4.24m | - |
+
+**비볼록 장애물 분류 정확도:**
+
+| 메트릭 | 값 |
+|--------|-----|
+| 전체 정확도 | 96.4% |
+| Safe precision | 99.8% |
+| Unsafe recall | 98.0% |
+| 학습 시간 | ~0.5s (300 epochs) |
+| 데이터 생성 | ~0.02s |
+
+**핵심 차별화:** Analytical CBF는 `h(x) = ||p-p_obs||² - r²` (원형만 가능), Neural CBF는 `Callable[[state], bool]` 인터페이스로 L자형, 복도, 불규칙 경계 등 임의 형상 지원.
 
 ## GPU 가속 ✅
 
@@ -301,6 +386,17 @@ f9052de - feat: add Tube-MPPI with ancillary controller
   - `--mode obstacle`: 장애물 회피 모드
   - `--with-cbf`: CBF/Shield 변형 추가
 - `examples/comparison/model_mismatch_comparison_demo.py`: 10-Way 비교
+- `examples/comparison/uncertainty_mppi_benchmark.py`: Uncertainty-Aware MPPI 벤치마크
+- `examples/comparison/neural_cbf_benchmark.py`: **Neural vs Analytical CBF 3-Way 비교**
+  - `--scenario circular`: 원형 장애물 동등 비교
+  - `--scenario non_convex`: L자형 비볼록 장애물 (Neural 우위)
+  - `--all-scenarios`: 전체 실행
+- `examples/comparison/c2u_mppi_benchmark.py`: **C2U-MPPI 3-Way 비교** (Vanilla vs UncMPPI vs C2U)
+  - `--scenario clean`: 외란 없음 (기준선)
+  - `--scenario noisy`: 프로세스 노이즈 추가
+  - `--all-scenarios`: 전체 실행
+- `examples/comparison/c2u_mppi_analysis.py`: **C2U-MPPI 심층 6-Way 분석**
+  - 장애물 근접도별, 노이즈 sweep, 모델 불일치, Figure-8, 파라미터 민감도, 공분산 시각화
 
 ## 다음 단계 (M4)
 
@@ -315,12 +411,12 @@ f9052de - feat: add Tube-MPPI with ancillary controller
 
 ## 통계
 
-- **총 코드 라인**: ~27,000+ 라인
-- **최종 업데이트**: 2026-02-21
-- **테스트**: 487개 (37 파일, 모두 통과 ✅)
-- **MPPI 변형**: 9개 ✅
-- **안전 제어**: 8개 ✅
-- **학습 모델**: 9개 ✅ (Neural/GP/Residual/Ensemble/MC-Dropout/MAML/EKF/L1/ALPaCA)
+- **총 코드 라인**: ~39,000+ 라인
+- **최종 업데이트**: 2026-03-11
+- **테스트**: 890개 (57 파일, 모두 통과 ✅)
+- **MPPI 변형**: 12개 ✅ (Vanilla/Tube/Log/Tsallis/Risk/Smooth/Spline/SVG/SVMPC/DIAL/Uncertainty/C2U)
+- **안전 제어**: 22개 ✅ (CBF/Shield/Adaptive/Gatekeeper/MPS/DIAL/Conformal/Neural-CBF 등)
+- **학습 모델**: 12개 ✅ (Neural/GP/Residual/Ensemble/MC-Dropout/MAML/EKF/L1/ALPaCA/LoRA/CP/Neural-CBF)
 - **로봇 모델**: 5개 ✅ (DiffDrive/Ackermann/Swerve × Kinematic/Dynamic)
-- **시뮬레이션**: 10 시나리오 + 4 외란 프로필
+- **시뮬레이션**: 11 시나리오 + 4 외란 프로필
 - **GPU 가속**: RTX 5080 K=8192→8.1x

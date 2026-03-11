@@ -2,7 +2,7 @@
 """
 Run All Simulation Environments
 
-모든 10개 시뮬레이션 시나리오를 순차 실행하고 요약 테이블 출력.
+모든 11개 시뮬레이션 시나리오를 순차 실행하고 요약 테이블 출력.
 
 Usage:
     python run_all.py
@@ -33,6 +33,7 @@ from scenarios.parking_precision import run_scenario as run_s7
 from scenarios.racing_mpcc import run_scenario as run_s8
 from scenarios.narrow_corridor import run_scenario as run_s9
 from scenarios.mixed_challenge import run_scenario as run_s10
+from scenarios.c2u_obstacle_field import run_scenario as run_s11
 
 
 SCENARIOS = {
@@ -46,6 +47,7 @@ SCENARIOS = {
     "s8": ("S8: Racing MPCC", run_s8, {"no_plot": True}),
     "s9": ("S9: Narrow Corridor", run_s9, {"no_plot": True}),
     "s10": ("S10: Mixed Challenge", run_s10, {"no_plot": True}),
+    "s11": ("S11: C2U Obstacle Field", run_s11, {"noise": "medium", "no_plot": True}),
 }
 
 
