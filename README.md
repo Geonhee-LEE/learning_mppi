@@ -1290,13 +1290,37 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 - [x] 1100+ unit tests (72 files)
 - [x] 10 simulation environments (static/dynamic/multi-robot/parking/racing/corridor)
 
-### In Progress
-- [ ] ROS2 nav2 Controller plugin
-- [ ] RVIZ real-time visualization
+### MPPI 알고리즘 개선
+- [ ] **KMPPI (Kernel MPPI)** — 소수 support point + RBF 커널 보간으로 샘플링 차원 75% 감소 + 제어 평활도 2x 향상 (ref: [pytorch_mppi](https://github.com/UM-ARM-Lab/pytorch_mppi))
+- [ ] **Pure PyTorch Tensor Pipeline** — CPU/GPU 투명 전환, 대각 공분산 최적화, torch.compile 지원 (ref: [pytorch_mppi](https://github.com/UM-ARM-Lab/pytorch_mppi))
+- [ ] **Topology-Aware MPPI** — 다중 homotopy class 병렬 탐색으로 local minima 탈출 (ref: [mpc_planner](https://github.com/tud-amr/mpc_planner) T-MPC++)
+- [ ] **Parameter-Robust MPPI** — SVGD 기반 컨트롤러 파라미터 최적화 + 이중 제어 (탐색↔활용)
+- [ ] **MPPI Autotune** — CMA-ES/Ray Tune 기반 lambda, sigma, horizon 자동 최적화 (ref: [pytorch_mppi](https://github.com/UM-ARM-Lab/pytorch_mppi))
+- [ ] **MPPI Batched** — N개 환경 x K개 샘플을 단일 배치로 처리, multi-agent/multi-sim 병렬화
+- [ ] **Latent-Space MPPI** — World Model (VAE/Transformer) 잠재 공간에서의 MPPI 계획
+- [ ] **Decentralized Multi-Agent MPPI** — SOCP 기반 분산 MPPI로 다중 로봇 협조 제어
 
-### Planned
-- [ ] C++ porting (real-time performance)
-- [ ] GPU acceleration for all MPPI variants
+### 학습 모델 확장
+- [ ] **Evidential Deep Learning (EDL)** — 단일 패스 인식론적/우연적 불확실성 분리 (앙상블 대비 10x 속도)
+- [ ] **Learnable Conformal Prediction** — 문맥 인식 비적합성 함수로 안전 마진 72→91% 향상
+- [ ] **BC-MPPI** — BNN 대리 모델을 통한 제약 조건 만족도 사전 필터링
+- [ ] **Neural Safety Verifier** — SDP/CROWN 추상화 기반 신경망 안전성 검증
+
+### 시뮬레이션 및 시각화
+- [ ] **제한 FOV 센싱 시뮬레이션** — 시야각/거리 제한 센서 모델, 감지된 장애물만 비용 반영 (ref: [safe_control](https://github.com/tkkim-robot/safe_control))
+- [ ] **Superellipsoid 장애물** — 비원형 장애물 표현 (직사각형/타원 근사, 미분 가능) (ref: [safe_control](https://github.com/tkkim-robot/safe_control))
+- [ ] **샘플 궤적 시각화** — 비용 기반 투명도 렌더링 + 제어 입력 게이지 (ref: [python_simple_mppi](https://github.com/MizuhoAOKI/python_simple_mppi))
+- [ ] **Crowd Navigation** — Social Force + 보행자 궤적 예측 (SocialLSTM) 통합
+- [ ] **Classic Control 데모** — Pendulum Swing-Up, CartPole 안정화로 MPPI 범용성 시연 (ref: [python_simple_mppi](https://github.com/MizuhoAOKI/python_simple_mppi))
+- [ ] **Jupyter Notebook 튜토리얼** — 주요 변형(Vanilla/Flow/C2U)별 대화형 step-by-step 데모
+- [ ] **Ablation Study Framework** — 파라미터 스윕 + 자동 시각화 벤치마크 프레임워크
+
+### 로봇 모델 확장
+- [ ] **Dynamic Bicycle (Fiala Tire)** — 종/횡 슬립 모델링, 드리프트 시뮬레이션 (ref: [safe_control](https://github.com/tkkim-robot/safe_control))
+- [ ] **Quadrotor 3D** — 12-state 6-DOF UAV + RK4 Sampled Data CBF (ref: [safe_control](https://github.com/tkkim-robot/safe_control))
+- [ ] **Mecanum Drive** — 슬립 모델링 포함 전방향 이동 (Kinematic + Dynamic)
+- [ ] **Single/Double Integrator** — 2D/4D 기본 모델, CBF 교육용 (ref: [safe_control](https://github.com/tkkim-robot/safe_control))
+- [ ] **Multi-Disc Robot** — 대형 로봇을 복수 디스크로 근사, 정밀 충돌 회피 (ref: [mpc_planner](https://github.com/tud-amr/mpc_planner))
 
 ## Contributing
 

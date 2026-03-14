@@ -8,10 +8,9 @@
 
 ## 프로젝트 개요
 
-MPPI (Model Predictive Path Integral) 기반 ROS2 모바일 로봇 제어 시스템
-- 13종 MPPI 변형, 22종 안전 제어, 12종 학습 모델
-- 890+ tests / 57+ files / ~39,000+ lines
-- 다음 목표: ROS2 통합 (M4) 또는 C++ 포팅 (M5)
+MPPI (Model Predictive Path Integral) 기반 모바일 로봇 제어 시스템
+- 15종 MPPI 변형, 22종 안전 제어, 12종 학습 모델
+- 1100+ tests / 72 files / ~47,000+ lines
 
 ## 인터페이스 규칙
 
