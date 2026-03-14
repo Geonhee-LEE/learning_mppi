@@ -57,6 +57,7 @@ from mppi_controller.utils.trajectory import (
     circle_trajectory,
     figure_eight_trajectory,
 )
+from mppi_controller.simulation.harness import SimulationHarness
 
 
 # ── 불확실성 모델 ────────────────────────────────────────────
@@ -107,44 +108,24 @@ def create_trajectory_fn(name):
     return circle_trajectory
 
 
-# ── 시뮬레이션 루프 ───────────────────────────────────────────
+# ── 시뮬레이션 루프 (SimulationHarness 기반) ──────────────────
 
 def run_simulation(model, controller, reference_fn, initial_state, dt, duration,
                    process_noise_std=None):
-    """모델 + 컨트롤러 시뮬레이션 실행"""
-    num_steps = int(duration / dt)
-    state = initial_state.copy()
-    t = 0.0
+    """SimulationHarness 기반 시뮬레이션 실행 (호환 인터페이스 유지)"""
+    harness = SimulationHarness(dt=dt, headless=True, seed=42)
+    harness.add_controller("ctrl", controller, model,
+                           process_noise_std=process_noise_std)
+    results = harness.run(reference_fn, initial_state, duration)
+    r = results["ctrl"]
+    h = r["history"]
 
-    states = [state.copy()]
-    controls_list = []
-    solve_times = []
-    infos = []
-
-    for _ in range(num_steps):
-        ref = reference_fn(t)
-
-        t0 = time.time()
-        control, info = controller.compute_control(state, ref)
-        solve_times.append(time.time() - t0)
-
-        next_state = model.step(state, control, dt)
-        if process_noise_std is not None:
-            next_state = next_state + np.random.normal(0, process_noise_std)
-        next_state = model.normalize_state(next_state)
-
-        states.append(next_state.copy())
-        controls_list.append(control.copy())
-        infos.append(info)
-
-        state = next_state
-        t += dt
-
+    # 기존 인터페이스 호환
     return {
-        "states": np.array(states),
-        "controls": np.array(controls_list),
-        "solve_times": np.array(solve_times),
-        "infos": infos,
+        "states": np.vstack([initial_state[None, :], h["state"]]),
+        "controls": h["control"],
+        "solve_times": h["solve_time"],
+        "infos": h.get("info", []),
     }
 
 

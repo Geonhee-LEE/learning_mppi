@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from typing import Dict, Optional, Callable
 
+from mppi_controller.simulation.rendering.robot_renderer import RobotRenderer, make_render_config
+
 
 class SimulationVisualizer:
     """
@@ -204,6 +206,13 @@ class SimulationVisualizer:
         ax_error.set_title("Position Tracking Error")
         ax_error.grid(True, alpha=0.3)
 
+        # 로봇 body 렌더러
+        model = getattr(simulator, "model", None)
+        rc = None
+        if model and hasattr(model, "render_config"):
+            rc = model.render_config()
+        robot_renderer = RobotRenderer(rc)
+
         # 데이터 저장
         xy_actual = []
         xy_ref = []
@@ -256,6 +265,9 @@ class SimulationVisualizer:
             line_ref.set_data(xy_ref_np[:, 0], xy_ref_np[:, 1])
             line_error.set_data(times_np, errors_np)
 
+            # 로봇 body 렌더링
+            robot_renderer.render(ax_xy, simulator.state)
+
             # 축 범위 자동 조정
             ax_xy.relim()
             ax_xy.autoscale_view()
@@ -286,13 +298,38 @@ class SimulationVisualizer:
         fps: int = 20,
     ):
         """
-        GIF 파일 생성 (mppi_playground 참고)
+        GIF/MP4 파일 생성.
 
         Args:
             history: 시뮬레이션 히스토리
-            filename: 출력 파일명
+            filename: 출력 파일명 (.gif 또는 .mp4)
             fps: 프레임 속도
         """
-        # TODO: Phase 4에서 구현
-        print(f"GIF export 기능은 Phase 4에서 구현 예정입니다.")
-        pass
+        from mppi_controller.simulation.rendering.animation_saver import AnimationSaver
+        import matplotlib
+        matplotlib.use("Agg")
+
+        states = history["state"]
+        references = history["reference"]
+        T = len(states)
+        frame_skip = max(1, int(1.0 / (fps * 0.05)))  # assume dt=0.05
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        saver = AnimationSaver(filename, fps=fps)
+
+        for i in range(0, T, frame_skip):
+            ax.clear()
+            ax.plot(references[:i+1, 0], references[:i+1, 1],
+                    "r--", alpha=0.5, label="Reference")
+            ax.plot(states[:i+1, 0], states[:i+1, 1],
+                    "b-", linewidth=2, label="Actual")
+            ax.scatter(states[i, 0], states[i, 1], c="blue", s=50, zorder=5)
+            ax.set_xlabel("X (m)")
+            ax.set_ylabel("Y (m)")
+            ax.set_aspect("equal")
+            ax.grid(True, alpha=0.3)
+            ax.legend(fontsize=8)
+            saver.capture_frame(fig)
+
+        saver.finalize()
+        plt.close(fig)

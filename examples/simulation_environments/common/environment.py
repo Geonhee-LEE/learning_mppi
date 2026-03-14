@@ -129,6 +129,15 @@ class SimulationEnvironment(ABC):
         """비교할 컨트롤러 목록 반환"""
         ...
 
+    def get_obstacles_with_velocity(self, t: float = 0.0) -> List[Tuple[float, float, float, float, float]]:
+        """
+        속도 포함 장애물 반환 [(x, y, r, vx, vy), ...].
+
+        기본 구현은 정적 장애물 (vx=vy=0). 동적 장애물이 있는
+        서브클래스에서 오버라이드.
+        """
+        return [(x, y, r, 0.0, 0.0) for x, y, r in self.get_obstacles(t)]
+
     def draw_environment(self, ax, t: float = 0.0):
         """시나리오별 시각화 데코레이션 (matplotlib Axes에 그리기)"""
         import matplotlib.pyplot as plt

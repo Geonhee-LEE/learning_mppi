@@ -106,6 +106,15 @@ class AckermannKinematic(RobotModel):
             "delta": state[3],
         }
 
+    def render_config(self) -> dict:
+        """Car body (Ackermann)."""
+        return {
+            "shape": "car",
+            "length": self.wheelbase * 1.2,
+            "width": self.wheelbase * 0.5,
+            "color": "#2ca02c",
+        }
+
     def normalize_state(self, state: np.ndarray) -> np.ndarray:
         """
         Normalize state:

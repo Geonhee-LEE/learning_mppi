@@ -103,6 +103,15 @@ class SwerveDriveKinematic(RobotModel):
             "theta": state[2],
         }
 
+    def render_config(self) -> dict:
+        """Rectangle body (Swerve)."""
+        return {
+            "shape": "rectangle",
+            "length": 0.4,
+            "width": 0.35,
+            "color": "#ff7f0e",
+        }
+
     def normalize_state(self, state: np.ndarray) -> np.ndarray:
         """Normalize theta to [-pi, pi]."""
         normalized = state.copy()

@@ -104,6 +104,10 @@ class DifferentialDriveKinematic(RobotModel):
         """
         return {"x": state[0], "y": state[1], "theta": state[2]}
 
+    def render_config(self) -> dict:
+        """Circle body (DiffDrive)."""
+        return {"shape": "circle", "radius": 0.2, "color": "#1f77b4"}
+
     def normalize_state(self, state: np.ndarray) -> np.ndarray:
         """
         상태 정규화 (θ를 [-π, π] 범위로)
