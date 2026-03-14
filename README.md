@@ -2,13 +2,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-836%20Passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1100%2B%20Passing-brightgreen)](tests/)
 
-A comprehensive MPPI (Model Predictive Path Integral) control library featuring 10 SOTA variants, **20 safety-critical control methods**, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), and **Conformal Prediction + CBF** for distribution-free dynamic safety margins.
+A comprehensive MPPI (Model Predictive Path Integral) control library featuring 15 SOTA variants, **22 safety-critical control methods**, 12 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
 
 ## Key Features
 
-### 10 MPPI Variants
+### 15 MPPI Variants
 
 | # | Variant | Reference | Key Feature |
 |---|---------|-----------|-------------|
@@ -22,6 +22,11 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 | 8 | **Spline-MPPI** | Bhardwaj et al., 2024 | Memory-efficient B-spline interpolation |
 | 9 | **SVG-MPPI** | Kondo et al., 2024 | Guide particle SVGD |
 | 10 | **DIAL-MPPI** | Howell et al., 2024 | Diffusion annealing (multi-iter + noise decay) |
+| 11 | **Uncertainty-Aware MPPI** | — | Adaptive noise from model uncertainty |
+| 12 | **C2U-MPPI** | — | Unscented Transform + Chance Constraint |
+| 13 | **Flow-MPPI** | — | Conditional Flow Matching sampling |
+| 14 | **Diffusion-MPPI** | — | DDPM/DDIM reverse diffusion sampling |
+| 15 | **WBC-MPPI** | — | Whole-Body Control (mobile manipulator) |
 
 ### 5 Robot Model Types
 
@@ -32,7 +37,7 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 - **Gaussian Process** - Uncertainty-aware dynamics
 - **Residual Dynamics** - Physics + learned correction
 
-### 20 Safety-Critical Control Methods
+### 22 Safety-Critical Control Methods
 
 | # | Method | Type | Key Feature | Reference |
 |---|--------|------|-------------|-----------|
@@ -55,6 +60,9 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 | 17 | **Adaptive Shield-DIAL-MPPI** | Annealing + Shield | DIAL + adaptive α(d,v) CBF shield | — |
 | 18 | **Conformal CBF-MPPI** | CP + Shield | Dynamic margin via Conformal Prediction (CP/ACP) | arXiv:2407.03569 |
 | 19 | **safe_control comparison** | External | MPPI vs CBF-QP / MPC-CBF benchmark | Kim et al. |
+| 20 | **Neural CBF** | Learned barrier | NN-based barrier function for non-convex obstacles | — |
+| 21 | **Uncertainty-Aware** | Adaptive sampling | Model uncertainty → adaptive noise scaling | — |
+| 22 | **C2U-MPPI Chance Constraint** | UT + CC | r_eff = r + κ_α√Σ probabilistic safety | — |
 
 Additional capabilities:
 - **MPCC (Model Predictive Contouring Control)** - Contouring/lag error decomposition for superior path following
@@ -76,7 +84,7 @@ Enable GPU acceleration with just `device="cuda"`. No changes to existing CPU co
 
 ### Learning-Based Models
 
-- **9 model types**: Neural Network, Gaussian Process, Residual, Ensemble NN, MC-Dropout Bayesian NN, **MAML (Meta-Learning)**, **EKF Adaptive**, **L1 Adaptive**, **ALPaCA (Bayesian)**
+- **12 model types**: Neural Network, Gaussian Process, Residual, Ensemble NN, MC-Dropout Bayesian NN, **MAML (Meta-Learning)**, **EKF Adaptive**, **L1 Adaptive**, **ALPaCA (Bayesian)**, **Flow Matching** (CFM velocity field), **Diffusion** (DDPM/DDIM), **Neural CBF** (learned barrier)
 - **MAML meta-learning**: FOMAML/Reptile-based few-shot adaptation — Residual MAML-5D achieves 0.055m RMSE under combined disturbances (noise=0.7)
 - **Post-MAML adaptation**: EKF (parameter estimation), L1 (disturbance estimation + low-pass filter), ALPaCA (Bayesian linear regression)
 - **Disturbance simulation**: WindGust, TerrainChange, Sinusoidal, Combined profiles for evaluating model adaptation
@@ -884,6 +892,13 @@ learning_mppi/
 │   │   ├── shield_dial_mppi.py     # Shield-DIAL-MPPI (annealing + CBF)
 │   │   ├── adaptive_shield_dial_mppi.py # Adaptive Shield-DIAL-MPPI
 │   │   ├── conformal_cbf_mppi.py   # Conformal Prediction + CBF-MPPI
+│   │   ├── flow_mppi.py            # Flow-MPPI (CFM sampling)
+│   │   ├── diffusion_mppi.py       # Diffusion-MPPI (DDPM/DDIM)
+│   │   ├── wbc_mppi.py             # WBC-MPPI (Whole-Body Control)
+│   │   ├── se3_cost.py             # SE3 task-space cost
+│   │   ├── manipulation_costs.py   # Manipulation cost functions
+│   │   ├── flow_matching_sampler.py # Flow Matching noise sampler
+│   │   ├── diffusion_sampler.py    # Diffusion noise sampler
 │   │   ├── cbf_cost.py             # Standard CBF cost
 │   │   ├── c3bf_cost.py            # Collision Cone CBF
 │   │   ├── dpcbf_cost.py           # Dynamic Parabolic CBF
@@ -915,6 +930,9 @@ learning_mppi/
 │   │   ├── nn_policy_trainer.py   # NN-Policy (BC + BPTT) trainer
 │   │   ├── spectral_regularization.py # Spectral regularizer
 │   │   ├── conformal_predictor.py   # Conformal Prediction (CP/ACP)
+│   │   ├── flow_data_collector.py   # Flow Matching data collector
+│   │   ├── flow_matching_trainer.py # Flow Matching CFM trainer
+│   │   ├── diffusion_trainer.py     # Diffusion (DDPM/DDIM) trainer
 │   │   ├── online_learner.py       # Online learning
 │   │   └── model_validator.py      # Model validation
 │   │
@@ -923,13 +941,21 @@ learning_mppi/
 │   │   └── obstacle_tracker.py     # Nearest-neighbor tracking
 │   │
 │   ├── simulation/                 # Simulation tools
+│   │   ├── harness.py               # SimulationHarness (multi-controller comparison)
+│   │   └── rendering/               # Rendering subsystem
+│   │       ├── headless.py           # NullAxes/NullFigure
+│   │       ├── robot_renderer.py     # Robot body patches (circle/car/rectangle)
+│   │       ├── animation_saver.py    # MP4/GIF export
+│   │       └── safety_overlay.py     # CBF contour/collision cone visualization
 │   └── utils/                      # Utilities
 │
-├── tests/                          # Unit tests (836 tests, 54 files)
+├── tests/                          # Unit tests (1100+ tests, 72 files)
 ├── examples/                       # Demo scripts
-│   └── simulation_environments/    # 10 simulation scenarios
+│   └── simulation_environments/    # 10+ simulation scenarios
 │       ├── common/                 # Shared infrastructure (ABC, obstacles, visualizer)
 │       ├── scenarios/              # S1~S10 scenario scripts
+│       │   ├── warehouse.py        # Warehouse environment scenario
+│       │   └── racing_track.py     # Racing track environment scenario
 │       └── run_all.py              # Batch runner + summary
 ├── plots/                          # Result plots
 ├── docs/                           # Documentation
@@ -941,7 +967,7 @@ learning_mppi/
 ### Quick Start
 
 ```bash
-# Run all tests (836 tests)
+# Run all tests (1100+ tests)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # Run with coverage (requires pytest-cov)
@@ -951,11 +977,11 @@ python -m pytest tests/ -v
 python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py tests/test_log_mppi.py -v --override-ini="addopts="
 ```
 
-### Test Results (2026-03-02)
+### Test Results (2026-03-14)
 
 ```
-============================= 836 passed in 9.02s ==============================
-Python 3.12.12 | pytest 9.0.2 | 54 test files | 0 failures
+============================= 1100+ passed ==============================
+Python 3.12.12 | pytest 9.0.2 | 72 test files | 0 failures
 ```
 
 ### Test Coverage by Category
@@ -968,17 +994,22 @@ Python 3.12.12 | pytest 9.0.2 | 54 test files | 0 failures
 | **Learning Models** | 9 | 150 | Neural, GP, Residual, Ensemble, MC-Dropout, MAML, EKF, L1, ALPaCA |
 | **LotF (LoRA/BPTT/DiffSim)** | 1 | 35 | LoRA adaptation, Spectral reg, DiffSim, BPTT, NN-Policy |
 | **6-DOF Benchmark** | 1 | 18 | 8-Way learned model comparison (NN/GP/Ensemble/MCDrop/MAML/ALPaCA) |
+| **Flow-MPPI** | 1 | 31 | Flow Matching model, sampler, data collector, trainer, controller |
+| **Diffusion-MPPI** | 1 | ~20 | DDPM/DDIM diffusion model, sampler, controller |
+| **WBC-MPPI** | 1 | ~20 | Whole-Body Control, SE3 cost, manipulation costs |
+| **SE3 Cost** | 1 | ~15 | SE3 task-space cost functions |
+| **Simulation Infrastructure** | 6 | ~50 | Headless, robot_renderer, animation_saver, harness, safety_overlay, render_config |
 | **Core Components** | 6 | 59 | Cost functions, sampling, dynamics wrapper, trajectory, simulator, metrics |
 | **Perception** | 2 | 17 | Obstacle detector, obstacle tracker |
 | **Data Pipeline** | 3 | 45 | Data pipeline, trainers, online learner |
 | **Nav2 Integration** | 5 | 36 | Follow path, costmap converter, path windower, goal/progress checker |
 | **Others** | 2 | 7 | Dynamic obstacles, etc. |
-| **Total** | **54** | **836** | **All passing (9.02s)** |
+| **Total** | **72** | **1100+** | **All passing** |
 
 ### Per-File Test Count
 
 <details>
-<summary>Click to expand full test file breakdown (52 files)</summary>
+<summary>Click to expand full test file breakdown (72 files)</summary>
 
 | # | Test File | Tests | Category |
 |---|-----------|-------|----------|
@@ -1036,6 +1067,11 @@ Python 3.12.12 | pytest 9.0.2 | 54 test files | 0 failures
 | 52 | `test_6dof_learned_benchmark.py` | 18 | 6-DOF 8-Way Learned Model Benchmark |
 | 53 | `test_lotf.py` | 35 | LotF (LoRA/BPTT/DiffSim/Spectral/NN-Policy) |
 | 54 | `test_conformal_cbf.py` | 30 | Conformal Prediction + CBF (CP/ACP/Controller) |
+| 55 | `test_flow_mppi.py` | 31 | Flow-MPPI (CFM model/sampler/collector/trainer/controller) |
+| 56 | `test_diffusion_mppi.py` | ~20 | Diffusion-MPPI (DDPM/DDIM sampler/controller) |
+| 57 | `test_wbc_mppi.py` | ~20 | WBC-MPPI (Whole-Body Control controller) |
+| 58 | `test_se3_cost.py` | ~15 | SE3 task-space cost functions |
+| 59–72 | Simulation infrastructure tests | ~50 | headless, robot_renderer, animation_saver, harness, safety_overlay, render_config, etc. |
 
 </details>
 
@@ -1219,9 +1255,9 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 ## Roadmap
 
 ### Completed
-- [x] 10 MPPI variants (+ DIAL-MPPI diffusion annealing)
+- [x] 15 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC)
 - [x] 5 robot model types (Kinematic/Dynamic/Learned x DiffDrive/Ackermann/Swerve)
-- [x] **20 safety-critical control methods** (CBF/C3BF/DPCBF/HorizonCBF/HardCBF/OptimalDecay/Gatekeeper/BackupCBF/MPS/MultiRobot/CBF-MPPI/Shield/AdaptiveShield/CBFGuided/ShieldSVG/ShieldDIAL/AdaptiveShieldDIAL/ConformalCBF + safe_control comparison)
+- [x] **22 safety-critical control methods** (CBF/C3BF/DPCBF/HorizonCBF/HardCBF/OptimalDecay/Gatekeeper/BackupCBF/MPS/MultiRobot/CBF-MPPI/Shield/AdaptiveShield/CBFGuided/ShieldSVG/ShieldDIAL/AdaptiveShieldDIAL/ConformalCBF/NeuralCBF/UncertaintyAware/C2U-ChanceConstraint + safe_control comparison)
 - [x] MPCC (Model Predictive Contouring Control) + Superellipsoid obstacles
 - [x] GPU acceleration (PyTorch CUDA, 8.1x speedup)
 - [x] Learning pipeline (NN/GP/Residual/Ensemble/MC-Dropout/MAML)
@@ -1240,7 +1276,18 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 - [x] 6-DOF Mobile Manipulator learned model benchmark (8-way: Kinematic/NN/GP/Ensemble/MCDropout/MAML/ALPaCA/Oracle)
 - [x] LotF 8-Way benchmark (LoRA/BPTT/Spectral/NN-Policy + DiffSim)
 - [x] Conformal Prediction + CBF (CP/ACP dynamic safety margin, 5-scenario benchmark)
-- [x] 836 unit tests (54 files)
+- [x] Uncertainty-Aware MPPI (adaptive noise from model uncertainty, 11th variant)
+- [x] C2U-MPPI (Unscented Transform + Chance Constraint, 12th variant)
+- [x] Neural CBF (learned barrier function for non-convex obstacles)
+- [x] Flow-MPPI (Conditional Flow Matching, 13th variant)
+- [x] Diffusion-MPPI (DDPM/DDIM, 14th variant)
+- [x] WBC-MPPI (Whole-Body Control, 15th variant) + SE3/manipulation costs
+- [x] SimulationHarness (unified multi-controller comparison framework)
+- [x] Robot body rendering (circle/car/rectangle patches)
+- [x] Safety visualization overlay (CBF contour, collision cone, DPCBF, effective radius)
+- [x] AnimationSaver (MP4/GIF export)
+- [x] Warehouse + Racing Track environment scenarios
+- [x] 1100+ unit tests (72 files)
 - [x] 10 simulation environments (static/dynamic/multi-robot/parking/racing/corridor)
 
 ### In Progress

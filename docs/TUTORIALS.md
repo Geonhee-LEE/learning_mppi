@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-12종 MPPI 변형, 22종 안전 제어, 12종 학습 모델을 포괄하는 실습 가이드입니다.
+15종 MPPI 변형, 22종 안전 제어, 12종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -10,13 +10,13 @@
 1. [환경 설정](#1-환경-설정)
 2. [기본 MPPI 제어 (기구학)](#2-기본-mppi-제어-기구학)
 3. [동역학 모델 제어](#3-동역학-모델-제어)
-4. [MPPI 변형 12종 벤치마크](#4-mppi-변형-12종-벤치마크)
+4. [MPPI 변형 15종 벤치마크](#4-mppi-변형-15종-벤치마크)
 5. [안전 제어 (CBF / Shield / Adaptive)](#5-안전-제어-cbf--shield--adaptive)
 6. [모델 학습 (NN / GP / Residual / Ensemble)](#6-모델-학습-nn--gp--residual--ensemble)
 7. [메타 학습 및 온라인 적응](#7-메타-학습-및-온라인-적응-maml--lora--ekf--l1--alpaca)
 8. [고급: LotF / BPTT / DiffSim / NN-Policy](#8-고급-lotf--bptt--diffsim--nn-policy)
 9. [불확실성 기반 제어](#9-불확실성-기반-제어-uncertainty--conformal--c2u-mppi)
-10. [시뮬레이션 환경 (S1-S11)](#10-시뮬레이션-환경-s1-s11)
+10. [시뮬레이션 환경 (S1-S13)](#10-시뮬레이션-환경-s1-s13)
 11. [GPU 가속](#11-gpu-가속)
 
 ---
@@ -64,7 +64,7 @@ PYTHONPATH=. python examples/kinematic/mppi_differential_drive_kinematic_demo.py
 ### 테스트 실행
 
 ```bash
-# 전체 테스트 (890개, ~12초)
+# 전체 테스트 (1100+개, ~15초)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # 특정 카테고리
@@ -187,9 +187,9 @@ PYTHONPATH=. python examples/comparison/kinematic_vs_dynamic_demo.py --no-plot
 
 ---
 
-## 4. MPPI 변형 12종 벤치마크
+## 4. MPPI 변형 15종 벤치마크
 
-12가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
+15가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
 각 변형은 특정 문제(분포 왜곡, 위험 회피, 샘플 다양성 등)를
 해결하기 위해 설계되었습니다.
 
@@ -224,6 +224,9 @@ PYTHONPATH=. python examples/mppi_all_variants_benchmark.py --no-plot
 | 10 | **DIAL** | 확산 어닐링 (반복 + 노이즈 감쇄) | 수렴 속도 향상 |
 | 11 | **Uncertainty** | 불확실성 적응 샘플링 | 모델 오차 적응 |
 | 12 | **C2U** | Unscented Transform + 기회 제약 | 확률적 안전 보장 |
+| 13 | **Flow** | CFM 속도장 학습 → 다중 모달 샘플링 | 학습된 분포 사전 정보 |
+| 14 | **Diffusion** | DDPM/DDIM 역확산 → 제어 시퀀스 생성 | 고품질 다중 모달 샘플 |
+| 15 | **WBC** | 모바일 매니퓰레이터 통합 (베이스+팔) | 전신 제어 |
 
 ### 변형별 고유 파라미터
 
@@ -249,7 +252,7 @@ UncertaintyMPPIParams(K=1024, N=30, strategy="two_pass")
 
 ### 기대 결과
 
-- 12종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
+- 15종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
 - 궤적 비교 플롯 (각 변형의 추적 경로 오버레이)
 - Vanilla 대비 각 변형의 상대 성능 비율
 
@@ -662,15 +665,15 @@ PYTHONPATH=. python examples/comparison/c2u_mppi_benchmark.py --no-plot
 
 ---
 
-## 10. 시뮬레이션 환경 (S1-S11)
+## 10. 시뮬레이션 환경 (S1-S13)
 
-11개 시뮬레이션 시나리오로 다양한 상황에서 MPPI 성능을 검증합니다.
+13개 시뮬레이션 시나리오로 다양한 상황에서 MPPI 성능을 검증합니다.
 정적/동적 장애물, 다중 로봇, 좁은 통로 등 실제 로봇 운용 상황을 모사합니다.
 
 ### 전체 시나리오 실행
 
 ```bash
-# 11개 시나리오 순차 실행 + 요약 테이블
+# 13개 시나리오 순차 실행 + 요약 테이블
 cd examples/simulation_environments
 PYTHONPATH=../.. python run_all.py
 
@@ -695,6 +698,8 @@ PYTHONPATH=../.. python run_all.py --no-plot
 | S9 | Narrow Corridor | 좁은 통로 통과 |
 | S10 | Mixed Challenge | 복합 환경 (정적+동적+외란) |
 | S11 | C2U Obstacle Field | C2U-MPPI 전용 확률적 장애물 회피 |
+| S12 | Warehouse | 창고 환경 (레벨별 난이도) |
+| S13 | Racing Track | 레이싱 트랙 (3종 트랙 + 마찰 불일치) |
 
 ### 기대 결과
 

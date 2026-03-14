@@ -1,7 +1,7 @@
 # MPPI 구현 현황
 
-**날짜**: 2026-03-11 (Updated)
-**상태**: Phase 4 + Safety + GPU + MAML + Post-MAML + 최적화 + C2U-MPPI 완료 ✅
+**날짜**: 2026-03-14 (Updated)
+**상태**: Phase 4 + Safety + GPU + MAML + Post-MAML + 최적화 + C2U-MPPI + Flow/Diffusion/WBC-MPPI + SimulationHarness 완료 ✅
 
 ## 구현 완료 변형
 
@@ -107,6 +107,36 @@
 | 강 | 24 | 3 | **0** |
 | 극강 | 56 | 32 | **10** |
 
+### M3.5f: Flow-MPPI (Conditional Flow Matching) ✅
+- **파일**: `mppi_controller/controllers/mppi/flow_mppi.py`
+- **특징**: CFM 속도장 v_θ(x_t, t, context) 기반 다중 모달 샘플링
+- **성능**: 4모델×4환경 벤치마크 최저 RMSE 14/16
+- **핵심 구성**:
+  - `FlowMatchingSampler(NoiseSampler)`: 3모드 (replace_mean/replace_distribution/blend)
+  - `FlowMPPIController(MPPIController)`: self-supervised + bootstrap + online
+  - `FlowDataCollector`: (state, U_optimal) ring buffer
+  - `FlowMatchingTrainer`: CFM Loss (OT interpolation)
+  - `FlowMPPIParams(MPPIParams)`: 전용 파라미터
+
+### M3.5g: Diffusion-MPPI (DDPM/DDIM) ✅
+- **파일**: `mppi_controller/controllers/mppi/diffusion_mppi.py`
+- **특징**: DDPM/DDIM 역확산 샘플러, cosine/linear 스케줄
+- **핵심 구성**:
+  - `DiffusionMPPIController(MPPIController)`: 역확산 샘플 생성
+  - `DiffusionSampler`: 노이즈 예측 MLP + replace/blend 모드
+  - `DiffusionTrainer`: DDPM Loss 학습
+  - `DiffusionMPPIParams(MPPIParams)`: 전용 파라미터
+
+### M3.5h: WBC-MPPI (Whole-Body Control) ✅
+- **파일**: `mppi_controller/controllers/mppi/wbc_mppi.py`
+- **특징**: 모바일 매니퓰레이터 베이스+팔 통합 제어
+- **핵심 구성**:
+  - `WBCMPPIController(MPPIController)`: 통합 9D 상태/8D 제어
+  - `WBCNoiseSampler`: 베이스/팔 독립 노이즈
+  - SE3 비용: Geodesic, SE3Tracking, Reachability, Manipulability (6종)
+  - 조작 비용: Singularity, GraspApproach, CollisionSweep 등 (6종)
+  - `WBCMPPIParams(MPPIParams)`: 전용 파라미터
+
 ## Phase 4: 학습 모델 고도화 ✅
 
 ### M3.6a: Neural Dynamics ✅
@@ -173,6 +203,9 @@
 | **SVG** | 0.007 | 273 | SVGD 고속화 | 품질+속도 균형 |
 | **Uncertainty** | 0.006 | 3 | 적응 σ (two_pass) | 모델 불일치 환경 |
 | **C2U-MPPI** | 0.024 | 3.7 | UT 공분산 + CC | 고노이즈 안전 우선 |
+| **Flow-MPPI** | - | - | CFM 다중 모달 | 복잡 분포 학습 |
+| **Diffusion-MPPI** | - | - | DDPM/DDIM 역확산 | 생성 모델 샘플링 |
+| **WBC-MPPI** | - | - | 베이스+팔 통합 | 모바일 매니퓰레이터 |
 
 ### 학습 모델 성능
 
@@ -341,6 +374,27 @@ L_grad    = mean((||∂h/∂x|| - 1)²)  at boundary
 
 **핵심 차별화:** Analytical CBF는 `h(x) = ||p-p_obs||² - r²` (원형만 가능), Neural CBF는 `Callable[[state], bool]` 인터페이스로 L자형, 복도, 불규칙 경계 등 임의 형상 지원.
 
+## 시뮬레이션 인프라 ✅ (2026-03-14)
+
+### SimulationHarness
+- **파일**: `mppi_controller/simulation/harness.py`
+- **특징**: 통합 다중 컨트롤러 비교 시뮬레이션 프레임워크
+- **구성**: ControllerEntry dataclass, run/plot/animate/print_comparison 메서드
+
+### 렌더링 서브시스템 (`mppi_controller/simulation/rendering/`)
+- `headless.py`: NullAxes/NullFigure (GUI 없는 환경 지원)
+- `robot_renderer.py`: Circle/Car/Rectangle body 패치 렌더링
+- `animation_saver.py`: MP4(ffmpeg)/GIF(Pillow) 내보내기
+- `safety_overlay.py`: CBF contour, collision cone, DPCBF, effective radius, neural CBF heatmap
+
+### 환경 시나리오
+- `scenarios/warehouse.py`: 창고 환경 (레벨 0-5, 정적+동적 장애물)
+- `scenarios/racing_track.py`: 레이싱 트랙 (직선/타원/L자형, 마찰 불일치)
+
+### 모델 렌더링 통합
+- `RobotModel.render_config()`: base + DiffDrive(circle) + Ackermann(car) + Swerve(rectangle)
+- `env_visualizer.py`: 로봇 body + 안전 오버레이 + 속도 화살표
+
 ## GPU 가속 ✅
 
 - `gpu/` 패키지: TorchDiffDriveKinematic, TorchCompositeCost, TorchGaussianSampler
@@ -411,12 +465,12 @@ L_grad    = mean((||∂h/∂x|| - 1)²)  at boundary
 
 ## 통계
 
-- **총 코드 라인**: ~39,000+ 라인
-- **최종 업데이트**: 2026-03-11
-- **테스트**: 890개 (57 파일, 모두 통과 ✅)
-- **MPPI 변형**: 12개 ✅ (Vanilla/Tube/Log/Tsallis/Risk/Smooth/Spline/SVG/SVMPC/DIAL/Uncertainty/C2U)
+- **총 코드 라인**: ~47,000+ 라인
+- **최종 업데이트**: 2026-03-14
+- **테스트**: 1100개 (72 파일, 모두 통과 ✅)
+- **MPPI 변형**: 15개 ✅ (Vanilla/Tube/Log/Tsallis/Risk/Smooth/Spline/SVG/SVMPC/DIAL/Uncertainty/C2U/Flow/Diffusion/WBC)
 - **안전 제어**: 22개 ✅ (CBF/Shield/Adaptive/Gatekeeper/MPS/DIAL/Conformal/Neural-CBF 등)
 - **학습 모델**: 12개 ✅ (Neural/GP/Residual/Ensemble/MC-Dropout/MAML/EKF/L1/ALPaCA/LoRA/CP/Neural-CBF)
 - **로봇 모델**: 5개 ✅ (DiffDrive/Ackermann/Swerve × Kinematic/Dynamic)
-- **시뮬레이션**: 11 시나리오 + 4 외란 프로필
+- **시뮬레이션**: 11 시나리오 + 4 외란 프로필 + SimulationHarness + 렌더링 서브시스템
 - **GPU 가속**: RTX 5080 K=8192→8.1x

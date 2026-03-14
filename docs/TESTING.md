@@ -2,14 +2,14 @@
 
 ## Overview
 
-learning_mppi는 870개의 단위 테스트를 통해 모든 MPPI 변형, 안전 제어, 로봇 모델, 학습 모델의 정확성을 검증합니다.
+learning_mppi는 1100+개의 단위 테스트를 통해 모든 MPPI 변형, 안전 제어, 로봇 모델, 학습 모델의 정확성을 검증합니다.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  Test Summary (2026-03-07)                       │
+│  Test Summary (2026-03-14)                       │
 ├──────────────────────────────────────────────────┤
-│  Total:      890 tests                           │
-│  Files:      57 test files                       │
+│  Total:      1101 tests                          │
+│  Files:      72 test files                       │
 │  Status:     ALL PASSED                          │
 │  Duration:   ~12 seconds                         │
 │  Python:     3.12.12                             │
@@ -206,6 +206,30 @@ python -m pytest tests/test_6dof_learned_benchmark.py -v --override-ini="addopts
 | `test_dynamic_obstacles.py` | 7 | 동적 장애물 회피 시나리오 |
 | `test_gpu_mppi.py` | 7 | GPU 가속 (CUDA 미설치 시 CPU fallback) |
 
+### 11. New MPPI Variants (4 files, ~100 tests)
+
+Flow-MPPI, Diffusion-MPPI, WBC-MPPI, SE3 비용 함수를 검증합니다.
+
+| Test File | Tests | 검증 항목 |
+|-----------|-------|----------|
+| `test_flow_mppi.py` | ~30 | Flow-MPPI 컨트롤러 + CFM 샘플러 |
+| `test_diffusion_mppi.py` | ~20 | Diffusion-MPPI + DDPM/DDIM |
+| `test_wbc_mppi.py` | ~30 | WBC-MPPI + WBC 노이즈 |
+| `test_se3_cost.py` | ~20 | SE3/Manipulation 비용 함수 |
+
+### 12. Simulation Infrastructure (6 files, 69 tests)
+
+시뮬레이션 하네스, 렌더링 서브시스템, 안전 시각화의 동작을 검증합니다.
+
+| Test File | Tests | 검증 항목 |
+|-----------|-------|----------|
+| `test_headless.py` | 17 | NullAxes/NullFigure API 흡수 |
+| `test_robot_renderer.py` | 12 | Circle/Car/Rectangle body 렌더링 |
+| `test_animation_saver.py` | 6 | GIF 프레임 캡처/저장 |
+| `test_simulation_harness.py` | 14 | 단일/다중 컨트롤러, headless, 콜백, 메트릭 |
+| `test_safety_overlay.py` | 12 | CBF contour, collision cone, DPCBF, effective radius |
+| `test_render_config.py` | 6 | 모델별 render_config 검증 |
+
 ## Test Architecture
 
 ### 테스트 구조
@@ -273,7 +297,7 @@ tests/
 
 1. **명명 규칙**: `test_<module>.py` 파일, `test_<function>` 함수
 2. **외부 의존성 없음**: ROS2, GPU, 외부 서비스 없이 실행 가능
-3. **빠른 실행**: 전체 890개 테스트 ~12초 완료
+3. **빠른 실행**: 전체 1100+개 테스트 ~12초 완료
 4. **pytest 설정**: `pyproject.toml`의 `[tool.pytest.ini_options]` 참조
 
 ### pyproject.toml 설정

@@ -1,12 +1,12 @@
 # Simulation Environments Guide
 
-10 diverse simulation scenarios showcasing the full capabilities of MPPI variants, safety controllers, and robot models.
+12 diverse simulation scenarios showcasing the full capabilities of MPPI variants, safety controllers, and robot models.
 
 ## Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    Simulation Environments (10)                       │
+│                    Simulation Environments (12)                       │
 ├────┬───────────────────────────┬─────────────────────┬──────────────┤
 │ ID │ Scenario                  │ Controllers          │ Time (batch) │
 ├────┼───────────────────────────┼─────────────────────┼──────────────┤
@@ -20,8 +20,10 @@
 │ S8 │ Racing MPCC               │ MPCC/Tracking        │    ~44s      │
 │ S9 │ Narrow Corridor           │ CBF/Shield/Aggr.     │    ~89s      │
 │ S10│ Mixed Challenge           │ Shield-MPPI          │    ~34s      │
+│ S12│ Warehouse (levels 0-5)    │ Vanilla/Shield       │    ~10s      │
+│ S13│ Racing Track (3 types)    │ DiffDrive             │     ~8s      │
 ├────┴───────────────────────────┴─────────────────────┴──────────────┤
-│ Total: 10 scenarios, ~218s batch execution                           │
+│ Total: 12 scenarios, ~236s batch execution                           │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -250,6 +252,46 @@ PYTHONPATH=. python examples/simulation_environments/scenarios/mixed_challenge.p
 
 ---
 
+### S12: Warehouse
+
+Navigate through warehouse shelves with increasing difficulty (levels 0-5).
+
+| Level | Features |
+|-------|----------|
+| 0 | Open area (no obstacles) |
+| 1-2 | Static shelves |
+| 3-4 | Shelves + bouncing dynamic obstacles |
+| 5 | Dense shelves + dynamic obstacles |
+
+```bash
+PYTHONPATH=. python examples/simulation_environments/scenarios/warehouse.py
+PYTHONPATH=. python examples/simulation_environments/scenarios/warehouse.py --level 3 --live
+```
+
+**Key features**: `WarehouseEnv(level=0-5)`, progressive difficulty, wall-based shelves, bouncing obstacles
+
+---
+
+### S13: Racing Track
+
+Race along tracks with optional model mismatch (friction changes).
+
+| Track | Description |
+|-------|-------------|
+| `straight` | Simple straight corridor |
+| `oval` | Elliptical loop |
+| `l_shape` | L-shaped track with sharp turn |
+
+```bash
+PYTHONPATH=. python examples/simulation_environments/scenarios/racing_track.py
+PYTHONPATH=. python examples/simulation_environments/scenarios/racing_track.py --track oval
+PYTHONPATH=. python examples/simulation_environments/scenarios/racing_track.py --track l_shape --friction 0.5
+```
+
+**Key features**: `RacingTrackEnv(track, friction_scale)`, arc-length reference, `FrictionMismatchModel`
+
+---
+
 ## Batch Runner
 
 Run all 10 scenarios and generate a summary table:
@@ -306,6 +348,9 @@ Scenario-specific arguments:
 | S1 | `--layout` | `random` | `random`, `slalom`, or `dense` |
 | S2 | `--n-obstacles` | 5 | Number of bouncing obstacles |
 | S6 | `--noise` | 0.3 | Process noise level |
+| S12 | `--level` | 0 | Warehouse difficulty (0-5) |
+| S13 | `--track` | `straight` | Track type (straight/oval/l_shape) |
+| S13 | `--friction` | 1.0 | Friction mismatch scale |
 
 ---
 
@@ -334,7 +379,9 @@ examples/simulation_environments/
 │   ├── parking_precision.py     # S7
 │   ├── racing_mpcc.py           # S8
 │   ├── narrow_corridor.py       # S9
-│   └── mixed_challenge.py       # S10
+│   ├── mixed_challenge.py       # S10
+│   ├── warehouse.py           # S12
+│   └── racing_track.py        # S13
 └── run_all.py                   # Batch runner + summary
 ```
 
@@ -395,6 +442,33 @@ State transition: `NAVIGATING -> DWELLING -> NAVIGATING -> ... -> COMPLETED`
 | `path_length` | Actual trajectory length (m) |
 | `path_efficiency` | Straight-line / actual distance |
 | `completion_time` | Time to reach goal (s) |
+
+---
+
+## SimulationHarness (통합 시뮬레이션 프레임워크)
+
+`mppi_controller.simulation.harness.SimulationHarness`를 사용하면 시뮬레이션 루프 중복 없이 다중 컨트롤러를 비교할 수 있습니다.
+
+```python
+from mppi_controller.simulation.harness import SimulationHarness
+
+harness = SimulationHarness(dt=0.05, headless=True)
+harness.add_controller("Vanilla", vanilla_ctrl, model, "blue")
+harness.add_controller("Shield", shield_ctrl, model, "red")
+
+results = harness.run(reference_fn, x0, duration=15.0)
+harness.print_comparison(results)
+harness.plot(results, save_path="plots/comparison.png")
+```
+
+### 렌더링 서브시스템
+
+| 모듈 | 기능 |
+|------|------|
+| `rendering/headless.py` | NullAxes/NullFigure (GUI 없는 환경) |
+| `rendering/robot_renderer.py` | Circle/Car/Rectangle body 패치 |
+| `rendering/animation_saver.py` | MP4/GIF 내보내기 |
+| `rendering/safety_overlay.py` | CBF contour, collision cone, DPCBF, effective radius |
 
 ---
 
