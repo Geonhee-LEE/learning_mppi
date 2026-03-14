@@ -1,7 +1,7 @@
 """
 EnvVisualizer — 시뮬레이션 환경 시각화.
 
-라이브 애니메이션, 배치 플롯, GIF 내보내기를 지원.
+라이브 애니메이션, 배치 플롯, GIF/MP4 내보내기를 지원.
 SimulationEnvironment ABC와 함께 사용.
 """
 
@@ -12,6 +12,10 @@ from typing import Dict, List, Optional, Callable
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+
+from mppi_controller.simulation.rendering.robot_renderer import RobotRenderer, make_render_config
+from mppi_controller.simulation.rendering.safety_overlay import SafetyOverlay
+from mppi_controller.simulation.rendering.animation_saver import AnimationSaver
 
 
 COLORS = [
@@ -29,9 +33,13 @@ class EnvVisualizer:
         figsize: 기본 Figure 크기
     """
 
-    def __init__(self, environment, figsize=(16, 10)):
+    def __init__(self, environment, figsize=(16, 10),
+                 enable_robot_body: bool = True,
+                 safety_overlay: Optional[SafetyOverlay] = None):
         self.env = environment
         self.figsize = figsize
+        self.enable_robot_body = enable_robot_body
+        self.safety_overlay = safety_overlay
 
     def run_and_animate(
         self,
@@ -91,6 +99,7 @@ class EnvVisualizer:
         lines_err = {}
         lines_dist = {}
         lines_solve = {}
+        robot_renderers = {}
         for name in names:
             c = colors[name]
             lines_xy[name], = ax_xy.plot([], [], color=c, linewidth=2, label=name)
@@ -98,6 +107,18 @@ class EnvVisualizer:
             lines_err[name], = ax_err.plot([], [], color=c, linewidth=2, label=name)
             lines_dist[name], = ax_dist.plot([], [], color=c, linewidth=2, label=name)
             lines_solve[name], = ax_info.plot([], [], color=c, linewidth=2, label=name)
+
+            # 로봇 body 렌더러 생성
+            if self.enable_robot_body:
+                sim = simulators[name]
+                model = getattr(sim, "model", None)
+                rc = None
+                if model and hasattr(model, "render_config"):
+                    rc = model.render_config()
+                if rc is None:
+                    rc = {"shape": "circle", "radius": 0.15}
+                rc["color"] = c
+                robot_renderers[name] = RobotRenderer(rc)
 
         for ax in [ax_err, ax_dist, ax_info]:
             ax.legend(fontsize=7)
@@ -107,6 +128,7 @@ class EnvVisualizer:
 
         # 장애물 패치 관리
         obs_patches = []
+        vel_arrows = []
 
         data = {n: {"xy": [], "times": [], "errors": [], "clearances": [], "solve_times": []}
                 for n in names}
@@ -133,12 +155,36 @@ class EnvVisualizer:
 
             # 장애물 패치 업데이트
             for p in obs_patches:
-                p.remove()
+                try:
+                    p.remove()
+                except (ValueError, AttributeError):
+                    pass
             obs_patches.clear()
-            for ox, oy, r in current_obstacles:
+            for p in vel_arrows:
+                try:
+                    p.remove()
+                except (ValueError, AttributeError):
+                    pass
+            vel_arrows.clear()
+
+            for obs in current_obstacles:
+                ox, oy = obs[0], obs[1]
+                r = obs[2] if len(obs) >= 3 else 0.2
                 patch = plt.Circle((ox, oy), r, color="red", alpha=0.25)
                 ax_xy.add_patch(patch)
                 obs_patches.append(patch)
+                # 동적 장애물 속도 화살표 (5-tuple)
+                if len(obs) >= 5:
+                    vx, vy = obs[3], obs[4]
+                    speed = np.sqrt(vx**2 + vy**2)
+                    if speed > 0.01:
+                        arrow = ax_xy.annotate(
+                            "", xy=(ox + vx * 0.8, oy + vy * 0.8),
+                            xytext=(ox, oy),
+                            arrowprops=dict(arrowstyle="->", color="darkred",
+                                            lw=1.5, alpha=0.7),
+                        )
+                        vel_arrows.append(arrow)
 
             states_dict = {}
             controls_dict = {}
@@ -178,7 +224,14 @@ class EnvVisualizer:
                 xy = np.array(data[name]["xy"])
                 times = np.array(data[name]["times"])
                 lines_xy[name].set_data(xy[:, 0], xy[:, 1])
-                dots_xy[name].set_data([xy[-1, 0]], [xy[-1, 1]])
+
+                # 로봇 body 렌더링 (dot 대신)
+                if self.enable_robot_body and name in robot_renderers:
+                    robot_renderers[name].render(ax_xy, states_dict[name])
+                    dots_xy[name].set_data([], [])  # dot 숨김
+                else:
+                    dots_xy[name].set_data([xy[-1, 0]], [xy[-1, 1]])
+
                 lines_err[name].set_data(times, data[name]["errors"])
                 lines_solve[name].set_data(times, data[name]["solve_times"])
                 if data[name]["clearances"] and data[name]["clearances"][-1] < 1e6:
@@ -186,6 +239,16 @@ class EnvVisualizer:
                     lines_dist[name].set_data(
                         times[:len(finite_clear)], finite_clear
                     )
+
+            # 안전 오버레이 갱신
+            if self.safety_overlay:
+                first_name = names[0]
+                first_info = infos_dict.get(first_name, {})
+                self.safety_overlay.clear()
+                obs_3 = [(o[0], o[1], o[2]) for o in current_obstacles if len(o) >= 3]
+                self.safety_overlay.draw_all(
+                    ax_xy, states_dict[first_name], obs_3, first_info
+                )
 
             for ax in [ax_err, ax_dist, ax_info]:
                 ax.relim()

@@ -103,6 +103,15 @@ class RobotModel(ABC):
         """
         return {"state": state}
 
+    def render_config(self) -> dict:
+        """
+        시각화용 렌더링 설정 반환.
+
+        Returns:
+            {"shape": str, "radius": float, "color": str, ...}
+        """
+        return {"shape": "circle", "radius": 0.15, "color": "blue"}
+
     def normalize_state(self, state: np.ndarray) -> np.ndarray:
         """
         상태 정규화 (예: 각도 [-π, π] 범위로)

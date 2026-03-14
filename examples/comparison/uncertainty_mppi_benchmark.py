@@ -56,6 +56,7 @@ from mppi_controller.utils.trajectory import (
     circle_trajectory,
     figure_eight_trajectory,
 )
+from mppi_controller.simulation.harness import SimulationHarness
 
 
 # ── 모델 불일치 시뮬레이션 ───────────────────────────────────
