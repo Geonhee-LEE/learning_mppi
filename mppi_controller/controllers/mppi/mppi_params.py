@@ -455,6 +455,106 @@ class AdaptiveShieldDIALMPPIParams(ShieldDIALMPPIParams):
 
 
 @dataclass
+class DiffusionMPPIParams(MPPIParams):
+    """
+    Diffusion-MPPI 전용 추가 파라미터
+
+    DDPM/DDIM 기반 역확산 샘플러를 활용한 MPPI.
+    Flow-MPPI보다 표현력 높은 다중 모달 분포 근사.
+
+    Attributes:
+        diff_hidden_dims: 노이즈 예측 MLP 은닉층 차원
+        diff_T: 학습 시 총 노이즈 스텝 수
+        diff_ddim_steps: 추론 시 DDIM 스텝 수 (1~20)
+        diff_beta_schedule: 노이즈 스케줄 ("cosine" | "linear")
+        diff_mode: 샘플링 모드 ("replace" | "blend")
+        diff_blend_ratio: blend 모드 diffusion 비율 (0~1)
+        diff_exploration_sigma: 추가 탐색 노이즈 스케일
+        diff_guidance_scale: Classifier-free guidance 스케일
+        diff_model_path: 사전 학습 모델 경로
+        diff_online_training: 온라인 학습 활성화
+        diff_training_interval: 온라인 학습 주기 (스텝)
+        diff_buffer_size: 데이터 버퍼 최대 크기
+        diff_min_samples: 학습 시작 최소 샘플 수
+    """
+
+    diff_hidden_dims: List[int] = field(default_factory=lambda: [256, 256, 256])
+    diff_T: int = 1000
+    diff_ddim_steps: int = 5
+    diff_beta_schedule: str = "cosine"
+    diff_mode: str = "replace"
+    diff_blend_ratio: float = 0.5
+    diff_exploration_sigma: float = 0.3
+    diff_guidance_scale: float = 1.0
+    diff_model_path: Optional[str] = None
+    diff_online_training: bool = False
+    diff_training_interval: int = 100
+    diff_buffer_size: int = 5000
+    diff_min_samples: int = 200
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.diff_ddim_steps > 0, "diff_ddim_steps must be positive"
+        assert self.diff_beta_schedule in ("cosine", "linear"), \
+            f"Unknown beta_schedule: {self.diff_beta_schedule}"
+        assert self.diff_mode in ("replace", "blend"), \
+            f"Unknown diff_mode: {self.diff_mode}"
+        assert 0 <= self.diff_blend_ratio <= 1, "diff_blend_ratio must be in [0, 1]"
+        assert self.diff_T > 0, "diff_T must be positive"
+
+
+@dataclass
+class FlowMPPIParams(MPPIParams):
+    """
+    Flow-MPPI 전용 추가 파라미터
+
+    Conditional Flow Matching 기반 다중 모달 샘플링 MPPI.
+    학습된 속도장으로 가우시안 노이즈를 최적 제어 분포로 전송.
+
+    Attributes:
+        flow_hidden_dims: Flow 모델 은닉층 차원 리스트
+        flow_num_steps: ODE 적분 스텝 수 (5~10)
+        flow_solver: ODE solver ("euler" | "midpoint")
+        flow_mode: 샘플링 통합 모드
+            - "replace_mean": flow 출력을 평균으로, 가우시안 탐색 추가
+            - "replace_distribution": flow로 K개 직접 생성
+            - "blend": α*flow + (1-α)*gaussian 혼합
+        flow_blend_ratio: blend 모드의 flow 비율 (0~1)
+        flow_exploration_sigma: 탐색 노이즈 스케일 (replace_mean 모드)
+        flow_model_path: 사전 학습 모델 경로
+        flow_online_training: 온라인 학습 활성화
+        flow_training_interval: 온라인 학습 주기 (스텝)
+        flow_buffer_size: 데이터 버퍼 최대 크기
+        flow_min_samples: 학습 시작 최소 샘플 수
+    """
+
+    flow_hidden_dims: List[int] = field(default_factory=lambda: [256, 256, 256])
+    flow_num_steps: int = 5
+    flow_solver: str = "euler"
+    flow_mode: str = "replace_mean"
+    flow_blend_ratio: float = 0.5
+    flow_exploration_sigma: float = 0.5
+    flow_model_path: Optional[str] = None
+    flow_online_training: bool = False
+    flow_training_interval: int = 100
+    flow_buffer_size: int = 5000
+    flow_min_samples: int = 200
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.flow_num_steps > 0, "flow_num_steps must be positive"
+        assert self.flow_solver in ("euler", "midpoint"), \
+            f"Unknown flow_solver: {self.flow_solver}"
+        assert self.flow_mode in ("replace_mean", "replace_distribution", "blend"), \
+            f"Unknown flow_mode: {self.flow_mode}"
+        assert 0 <= self.flow_blend_ratio <= 1, "flow_blend_ratio must be in [0, 1]"
+        assert self.flow_exploration_sigma >= 0, "flow_exploration_sigma must be non-negative"
+        assert self.flow_training_interval > 0, "flow_training_interval must be positive"
+        assert self.flow_buffer_size > 0, "flow_buffer_size must be positive"
+        assert self.flow_min_samples > 0, "flow_min_samples must be positive"
+
+
+@dataclass
 class C2UMPPIParams(MPPIParams):
     """
     C2U-MPPI (Chance-Constrained Unscented MPPI) 전용 파라미터
@@ -497,4 +597,66 @@ class C2UMPPIParams(MPPIParams):
         assert self.cc_margin_factor > 0, "cc_margin_factor must be positive"
         assert self.propagation_mode in ("nominal", "per_sample"), \
             f"Unknown propagation_mode: {self.propagation_mode}"
-        assert self.process_noise_scale >= 0, "process_noise_scale must be non-negative"
+
+
+@dataclass
+class WBCMPPIParams(MPPIParams):
+    """
+    WBC-MPPI (Whole-Body Control MPPI) 전용 파라미터
+
+    MobileManipulator6DOFKinematic (9D 상태, 8D 제어)와 함께 사용.
+    베이스 + 팔 통합 최적화를 위한 전용 파라미터.
+
+    Attributes:
+        ee_pos_weight: EE 위치 추적 가중치
+        ee_ori_weight: EE 자세 추적 가중치 (SO(3) geodesic)
+        ee_terminal_pos_weight: EE 터미널 위치 비용 가중치
+        ee_terminal_ori_weight: EE 터미널 자세 비용 가중치
+        joint_limit_weight: 관절 한계 비용 가중치
+        joint_penalty: 관절 한계 위반 시 페널티
+        singularity_weight: 특이점 회피 비용 가중치
+        singularity_threshold: σ_min 임계값
+        reachability_weight: 도달가능성 비용 가중치
+        max_arm_reach: 팔 최대 도달 반경 (m)
+        min_arm_reach: 팔 최소 도달 반경 (m)
+        base_vel_weight: 베이스 속도 페널티 가중치
+        arm_effort_weight: 팔 관절 속도 비용 가중치
+        smooth_weight: 관절 속도 부드러움 비용 가중치
+        task_mode: 작업 모드 ("ee_tracking"|"navigation"|"both")
+    """
+
+    # EE 추적 가중치
+    ee_pos_weight: float = 100.0
+    ee_ori_weight: float = 10.0
+    ee_terminal_pos_weight: float = 200.0
+    ee_terminal_ori_weight: float = 20.0
+
+    # 관절 제한
+    joint_limit_weight: float = 50.0
+    joint_penalty: float = 1e4
+
+    # 특이점 회피
+    singularity_weight: float = 10.0
+    singularity_threshold: float = 0.02
+
+    # 도달가능성
+    reachability_weight: float = 30.0
+    max_arm_reach: float = 0.70
+    min_arm_reach: float = 0.10
+
+    # 제어 비용
+    base_vel_weight: float = 0.1
+    arm_effort_weight: float = 0.3
+    smooth_weight: float = 0.5
+
+    # 작업 모드
+    task_mode: str = "ee_tracking"
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.ee_pos_weight >= 0, "ee_pos_weight must be non-negative"
+        assert self.ee_ori_weight >= 0, "ee_ori_weight must be non-negative"
+        assert self.task_mode in ("ee_tracking", "navigation", "both"), \
+            f"Unknown task_mode: {self.task_mode}"
+        assert self.max_arm_reach > self.min_arm_reach, \
+            "max_arm_reach must be greater than min_arm_reach"
