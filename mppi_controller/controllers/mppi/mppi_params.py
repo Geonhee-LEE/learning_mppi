@@ -660,3 +660,27 @@ class WBCMPPIParams(MPPIParams):
             f"Unknown task_mode: {self.task_mode}"
         assert self.max_arm_reach > self.min_arm_reach, \
             "max_arm_reach must be greater than min_arm_reach"
+
+
+@dataclass
+class KernelMPPIParams(MPPIParams):
+    """
+    Kernel MPPI 전용 추가 파라미터
+
+    RBF 커널 보간으로 소수 서포트 포인트에서 전체 제어 시퀀스를 복원.
+    샘플링 차원 ~75% 감소 + 제어 평활도 향상.
+
+    Attributes:
+        num_support_pts: 서포트 포인트 수 S (S << N)
+        kernel_bandwidth: RBF 커널 대역폭 σ
+    """
+
+    num_support_pts: int = 8
+    kernel_bandwidth: float = 1.0
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.num_support_pts > 0, "num_support_pts must be positive"
+        assert self.num_support_pts <= self.N, \
+            "num_support_pts must be <= N"
+        assert self.kernel_bandwidth > 0, "kernel_bandwidth must be positive"
