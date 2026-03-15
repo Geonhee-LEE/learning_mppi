@@ -2,13 +2,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1100%2B%20Passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1200%2B%20Passing-brightgreen)](tests/)
 
-A comprehensive MPPI (Model Predictive Path Integral) control library featuring 15 SOTA variants, **22 safety-critical control methods**, 12 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
+A comprehensive MPPI (Model Predictive Path Integral) control library featuring 16 SOTA variants, **22 safety-critical control methods**, 12 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
 
 ## Key Features
 
-### 15 MPPI Variants
+### 16 MPPI Variants
 
 | # | Variant | Reference | Key Feature |
 |---|---------|-----------|-------------|
@@ -27,6 +27,7 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 | 13 | **Flow-MPPI** | — | Conditional Flow Matching sampling |
 | 14 | **Diffusion-MPPI** | — | DDPM/DDIM reverse diffusion sampling |
 | 15 | **WBC-MPPI** | — | Whole-Body Control (mobile manipulator) |
+| 16 | **BNN-MPPI** | Ezeji et al., 2025 | Ensemble uncertainty feasibility filtering |
 
 ### 5 Robot Model Types
 
@@ -949,7 +950,7 @@ learning_mppi/
 │   │       └── safety_overlay.py     # CBF contour/collision cone visualization
 │   └── utils/                      # Utilities
 │
-├── tests/                          # Unit tests (1100+ tests, 72 files)
+├── tests/                          # Unit tests (1200+ tests, 72 files)
 ├── examples/                       # Demo scripts
 │   └── simulation_environments/    # 10+ simulation scenarios
 │       ├── common/                 # Shared infrastructure (ABC, obstacles, visualizer)
@@ -967,7 +968,7 @@ learning_mppi/
 ### Quick Start
 
 ```bash
-# Run all tests (1100+ tests)
+# Run all tests (1200+ tests)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # Run with coverage (requires pytest-cov)
@@ -980,7 +981,7 @@ python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py tests/test_log_
 ### Test Results (2026-03-14)
 
 ```
-============================= 1100+ passed ==============================
+============================= 1200+ passed ==============================
 Python 3.12.12 | pytest 9.0.2 | 72 test files | 0 failures
 ```
 
@@ -1255,7 +1256,7 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 ## Roadmap
 
 ### Completed
-- [x] 15 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC)
+- [x] 16 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC, BNN)
 - [x] 5 robot model types (Kinematic/Dynamic/Learned x DiffDrive/Ackermann/Swerve)
 - [x] **22 safety-critical control methods** (CBF/C3BF/DPCBF/HorizonCBF/HardCBF/OptimalDecay/Gatekeeper/BackupCBF/MPS/MultiRobot/CBF-MPPI/Shield/AdaptiveShield/CBFGuided/ShieldSVG/ShieldDIAL/AdaptiveShieldDIAL/ConformalCBF/NeuralCBF/UncertaintyAware/C2U-ChanceConstraint + safe_control comparison)
 - [x] MPCC (Model Predictive Contouring Control) + Superellipsoid obstacles
@@ -1287,7 +1288,7 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 - [x] Safety visualization overlay (CBF contour, collision cone, DPCBF, effective radius)
 - [x] AnimationSaver (MP4/GIF export)
 - [x] Warehouse + Racing Track environment scenarios
-- [x] 1100+ unit tests (72 files)
+- [x] 1200+ unit tests (72 files)
 - [x] 10 simulation environments (static/dynamic/multi-robot/parking/racing/corridor)
 
 ### MPPI 알고리즘 개선
@@ -1303,7 +1304,7 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 ### 학습 모델 확장
 - [ ] **Evidential Deep Learning (EDL)** — 단일 패스 인식론적/우연적 불확실성 분리 (앙상블 대비 10x 속도)
 - [ ] **Learnable Conformal Prediction** — 문맥 인식 비적합성 함수로 안전 마진 72→91% 향상
-- [ ] **BC-MPPI** — BNN 대리 모델을 통한 제약 조건 만족도 사전 필터링
+- [x] **BNN-MPPI** — BNN 대리 모델을 통한 앙상블 불확실성 feasibility 필터링 (16th variant)
 - [ ] **Neural Safety Verifier** — SDP/CROWN 추상화 기반 신경망 안전성 검증
 
 ### 시뮬레이션 및 시각화
