@@ -314,8 +314,8 @@ class TestDiffusionTrainer:
         rng = np.random.default_rng(42)
         for _ in range(100):
             trainer.add_sample(
-                rng.randn(3),
-                rng.randn(5, 2),
+                rng.standard_normal(3),
+                rng.standard_normal((5, 2)),
             )
         stats = trainer.train(epochs=3, verbose=False)
         assert stats["n_samples"] == 100
@@ -358,8 +358,8 @@ class TestDiffusionBootstrap:
 
         # 부트스트랩 데이터 생성
         rng = np.random.default_rng(0)
-        states = rng.randn(20, 3)
-        controls = rng.randn(20, 5, 2) * 0.3
+        states = rng.standard_normal((20, 3))
+        controls = rng.standard_normal((20, 5, 2)) * 0.3
 
         stats = ctrl.bootstrap_diffusion(states, controls, epochs=3, verbose=False)
         assert stats["n_samples"] == 20

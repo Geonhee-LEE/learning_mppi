@@ -116,7 +116,9 @@ Thumbs.db
 # Logs
 *.log
 
-# Trained model files
-models/
+# Trained model files (checkpoints, weights)
+/models/
 examples/comparison/models/
 *.pth
+# Don't ignore source code in mppi_controller/models/
+!mppi_controller/models/
