@@ -684,3 +684,40 @@ class KernelMPPIParams(MPPIParams):
         assert self.num_support_pts <= self.N, \
             "num_support_pts must be <= N"
         assert self.kernel_bandwidth > 0, "kernel_bandwidth must be positive"
+
+
+@dataclass
+class BNNMPPIParams(MPPIParams):
+    """
+    BNN Surrogate MPPI 전용 파라미터
+
+    앙상블 불확실성 기반 궤적 feasibility 평가 + 필터링.
+    UncertaintyMPPI(샘플링 적응)와 달리, 비용 함수에서 불확실 궤적을 페널티/필터.
+
+    Attributes:
+        feasibility_weight: 불확실성 비용 가중치 β
+        uncertainty_reduce: 상태 차원 축소 방법 ("sum" | "max" | "mean")
+        feasibility_threshold: 최소 feasibility 점수 (0=필터 미적용)
+        max_filter_ratio: 최대 필터 비율 (최소 K*(1-ratio)개 생존)
+        margin_scale: σ → 동적 안전 마진 변환 계수
+        margin_max: 최대 동적 마진 (m)
+    """
+
+    feasibility_weight: float = 50.0
+    uncertainty_reduce: str = "sum"
+    feasibility_threshold: float = 0.0
+    max_filter_ratio: float = 0.5
+    margin_scale: float = 1.0
+    margin_max: float = 0.5
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.feasibility_weight >= 0, "feasibility_weight must be non-negative"
+        assert self.uncertainty_reduce in ("sum", "max", "mean"), \
+            f"Unknown uncertainty_reduce: {self.uncertainty_reduce}"
+        assert 0 <= self.feasibility_threshold <= 1, \
+            "feasibility_threshold must be in [0, 1]"
+        assert 0 < self.max_filter_ratio <= 1, \
+            "max_filter_ratio must be in (0, 1]"
+        assert self.margin_scale >= 0, "margin_scale must be non-negative"
+        assert self.margin_max >= 0, "margin_max must be non-negative"

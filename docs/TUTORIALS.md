@@ -656,12 +656,40 @@ PYTHONPATH=. python examples/comparison/c2u_mppi_benchmark.py --no-plot
 | `kappa_alpha` | 안전 마진 스케일 (정규분위수) | 1.645 |
 | `r_eff` | 유효 반경 = r + kappa * sqrt(Sigma) | 동적 계산 |
 
+### 9.5 BNN-MPPI (3-Way)
+
+앙상블 불확실성으로 궤적 feasibility를 평가하고, 저신뢰 궤적을 필터링합니다.
+
+```bash
+# 기본 벤치마크 (clean)
+PYTHONPATH=. python examples/comparison/bnn_mppi_benchmark.py
+
+# 노이즈 시나리오 (BNN 보수적 제어 우위)
+PYTHONPATH=. python examples/comparison/bnn_mppi_benchmark.py --scenario noisy
+
+# 장애물 시나리오 (BNN 안전 영역 선호)
+PYTHONPATH=. python examples/comparison/bnn_mppi_benchmark.py --scenario obstacle
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/bnn_mppi_benchmark.py --all-scenarios
+```
+
+**BNN-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `feasibility_weight` | 불확실성 비용 가중치 β | 50.0 |
+| `feasibility_threshold` | 최소 feasibility (0=필터 미적용) | 0.0 |
+| `max_filter_ratio` | 최대 필터 비율 | 0.5 |
+| `uncertainty_reduce` | 차원 축소 ("sum"\|"max"\|"mean") | "sum" |
+
 ### 기대 결과
 
 - Uncertainty-Aware: Clean 시나리오에서 Vanilla 대비 +59% 개선
 - Conformal CBF: ACP가 비정상 외란에서 가장 빠른 마진 적응
 - C2U-MPPI: 노이즈 환경에서 C2U > UncMPPI > Vanilla 안전성 순서
 - Neural CBF: 비볼록 장애물에서 분석적 CBF 대비 명확한 우위
+- BNN-MPPI: 불확실 영역 회피, obstacle 시나리오에서 Vanilla보다 안전하고 보수적
 
 ---
 

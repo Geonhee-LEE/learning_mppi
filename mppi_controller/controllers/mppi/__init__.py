@@ -43,6 +43,18 @@ from mppi_controller.controllers.mppi.manipulation_costs import (
     WBCBaseNavigationCost,
     JointVelocitySmoothCost,
 )
+from mppi_controller.controllers.mppi.bnn_mppi import (
+    BNNMPPIController,
+    FeasibilityCost,
+)
+from mppi_controller.controllers.mppi.mppi_params import BNNMPPIParams
+from mppi_controller.controllers.mppi.autotune import (
+    AutotuneObjective,
+    AutotuneConfig,
+    MPPIAutotuner,
+    OnlineSigmaAdapter,
+    AutotunedMPPIController,
+)
 
 __all__ = [
     "ConformalCBFMPPIController",
@@ -87,4 +99,14 @@ __all__ = [
     "CollisionFreeSweepCost",
     "WBCBaseNavigationCost",
     "JointVelocitySmoothCost",
+    # BNN-MPPI
+    "BNNMPPIController",
+    "BNNMPPIParams",
+    "FeasibilityCost",
+    # Autotune
+    "AutotuneObjective",
+    "AutotuneConfig",
+    "MPPIAutotuner",
+    "OnlineSigmaAdapter",
+    "AutotunedMPPIController",
 ]
