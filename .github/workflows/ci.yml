@@ -37,8 +37,8 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install numpy scipy matplotlib dataclasses-json
           pip install pytest pytest-cov pytest-timeout
-          # gpytorch은 optional — 없으면 GP 테스트 스킵
-          pip install gpytorch || echo "gpytorch install failed, GP tests will be skipped"
+          # gpytorch은 optional — CI에서는 설치하지 않음 (GP 테스트 자동 스킵)
+          # 로컬에서는 `pip install gpytorch`로 설치 후 GP 테스트 실행 가능
 
       - name: Run tests
         run: |
