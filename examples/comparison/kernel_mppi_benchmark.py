@@ -46,6 +46,13 @@ from mppi_controller.models.kinematic.swerve_drive_kinematic import (
 from mppi_controller.controllers.mppi.mppi_params import MPPIParams, KernelMPPIParams
 from mppi_controller.controllers.mppi.base_mppi import MPPIController
 from mppi_controller.controllers.mppi.kernel_mppi import KernelMPPIController
+from mppi_controller.controllers.mppi.cost_functions import (
+    CompositeMPPICost,
+    StateTrackingCost,
+    TerminalCost,
+    ControlEffortCost,
+    ObstacleCost,
+)
 from mppi_controller.utils.trajectory import (
     create_trajectory_function,
     generate_reference_trajectory,
@@ -104,7 +111,30 @@ def make_reference_fn(traj_fn, N, dt, state_dim):
     return ref_fn
 
 
-def setup_controllers(model_name, cfg, N, dt, K, S, bandwidth):
+# ── 장애물 시나리오 ─────────────────────────────────────────────
+
+OBSTACLES = [
+    (2.5, 2.0, 0.4),
+    (-1.5, 3.0, 0.5),
+    (1.0, -3.0, 0.3),
+]
+
+
+def _make_cost_function(cfg, obstacles=None):
+    """비용 함수 생성 (장애물 포함 가능)"""
+    cost_fns = [
+        StateTrackingCost(cfg["Q"]),
+        TerminalCost(cfg["Q"]),
+        ControlEffortCost(cfg["R"]),
+    ]
+    if obstacles:
+        cost_fns.append(
+            ObstacleCost(obstacles, safety_margin=0.2, cost_weight=500.0)
+        )
+    return CompositeMPPICost(cost_fns)
+
+
+def setup_controllers(model_name, cfg, N, dt, K, S, bandwidth, obstacles=None):
     """모델별 Vanilla + Kernel 컨트롤러 생성"""
     model_v = cfg["model_fn"]()
     model_k = cfg["model_fn"]()
@@ -116,8 +146,11 @@ def setup_controllers(model_name, cfg, N, dt, K, S, bandwidth):
     kernel_params = KernelMPPIParams(**common, num_support_pts=S,
                                      kernel_bandwidth=bandwidth)
 
-    ctrl_v = MPPIController(model_v, vanilla_params)
-    ctrl_k = KernelMPPIController(model_k, kernel_params)
+    cost_v = _make_cost_function(cfg, obstacles)
+    cost_k = _make_cost_function(cfg, obstacles)
+
+    ctrl_v = MPPIController(model_v, vanilla_params, cost_function=cost_v)
+    ctrl_k = KernelMPPIController(model_k, kernel_params, cost_function=cost_k)
 
     return {
         f"{model_name} Vanilla": (model_v, ctrl_v, cfg["color_vanilla"]),
@@ -134,6 +167,7 @@ def run_live(args):
     S, bw = args.support_pts, args.bandwidth
     duration = args.duration
     num_steps = int(duration / dt)
+    obstacles = OBSTACLES if args.scenario == "obstacles" else None
 
     traj_kwargs = {"radius": 3.0} if args.trajectory == "circle" else {}
     traj_fn = create_trajectory_function(args.trajectory, **traj_kwargs)
@@ -143,7 +177,8 @@ def run_live(args):
     initial_states = {}
 
     for model_name, cfg in MODEL_CONFIGS.items():
-        entries = setup_controllers(model_name, cfg, N, dt, K, S, bw)
+        entries = setup_controllers(model_name, cfg, N, dt, K, S, bw,
+                                    obstacles=obstacles)
         all_entries.update(entries)
         # 초기 상태: 궤적 위
         init_3d = traj_fn(0.0)
@@ -157,7 +192,7 @@ def run_live(args):
     states = {name: initial_states[name].copy() for name in all_entries}
     data = {
         name: {"xy": [], "times": [], "errors": [], "ess": [],
-               "costs": [], "controls": []}
+               "costs": [], "controls": [], "min_clearance": []}
         for name in all_entries
     }
     sim_t = [0.0]
@@ -165,8 +200,9 @@ def run_live(args):
     # ===== Figure (3행 2열: 모델별 XY + 오른쪽 metrics) =====
     fig = plt.figure(figsize=(16, 14))
     gs = fig.add_gridspec(3, 3, hspace=0.35, wspace=0.3)
+    scenario_tag = f" + Obstacles" if obstacles else ""
     fig.suptitle(
-        f"Kernel MPPI Live Benchmark — {args.trajectory.capitalize()} trajectory\n"
+        f"Kernel MPPI Live Benchmark — {args.trajectory.capitalize()}{scenario_tag}\n"
         f"(N={N}, K={K}, S={S}, bandwidth={bw})",
         fontsize=14, fontweight="bold",
     )
@@ -191,6 +227,16 @@ def run_live(args):
         ax.plot(ref_pts[:, 0], ref_pts[:, 1], "k--", alpha=0.3, linewidth=1, label="Ref")
 
         ax_xys[model_name] = ax
+
+        # 장애물 렌더링
+        if obstacles:
+            for ox, oy, r in obstacles:
+                circle = plt.Circle((ox, oy), r, color="red", alpha=0.3)
+                ax.add_patch(circle)
+                margin_circle = plt.Circle((ox, oy), r + 0.2,
+                                           color="red", alpha=0.1, linestyle="--",
+                                           fill=False)
+                ax.add_patch(margin_circle)
 
         # 이 모델의 Vanilla + KMPPI 라인
         for name, (_, _, color) in all_entries.items():
@@ -280,6 +326,15 @@ def run_live(args):
             data[name]["costs"].append(info.get("best_cost", 0.0))
             data[name]["controls"].append(control.copy())
 
+            # 장애물 클리어런스
+            if obstacles:
+                pos = states[name][:2]
+                clearances = [
+                    np.sqrt((pos[0] - ox)**2 + (pos[1] - oy)**2) - r
+                    for ox, oy, r in obstacles
+                ]
+                data[name]["min_clearance"].append(min(clearances))
+
         sim_t[0] += dt
 
         # 그래프 업데이트
@@ -302,8 +357,12 @@ def run_live(args):
 
         # 요약 텍스트 업데이트 (매 20프레임)
         if frame % 20 == 0 and frame > 0:
-            lines = ["Model          Method    RMSE     Jerk    ESS"]
-            lines.append("-" * 50)
+            has_obs = obstacles is not None
+            header = "Model          Method    RMSE     Jerk    ESS"
+            if has_obs:
+                header += "   MinClr"
+            lines = [header]
+            lines.append("-" * (50 + (8 if has_obs else 0)))
             for model_name in model_names:
                 for suffix in ["Vanilla", "KMPPI"]:
                     name = f"{model_name} {suffix}"
@@ -313,9 +372,15 @@ def run_live(args):
                     jerk = np.mean(np.abs(np.diff(ctrls[:, :2], axis=0))) if len(ctrls) > 1 else 0
                     ess = np.mean(data[name]["ess"])
                     tag = "V" if suffix == "Vanilla" else "K"
-                    lines.append(f"{model_name:14s} {tag:5s}  {rmse:6.3f}  {jerk:6.3f}  {ess:6.1f}")
+                    line = f"{model_name:14s} {tag:5s}  {rmse:6.3f}  {jerk:6.3f}  {ess:6.1f}"
+                    if has_obs and data[name]["min_clearance"]:
+                        min_clr = min(data[name]["min_clearance"])
+                        line += f"  {min_clr:6.3f}"
+                    lines.append(line)
             dim_reduction = (1 - S / N) * 100
             lines.append(f"\nDimension reduction: {dim_reduction:.0f}% (S={S}, N={N})")
+            if has_obs:
+                lines.append(f"Obstacles: {len(obstacles)}, safety_margin=0.2")
             summary_text.set_text("\n".join(lines))
 
         time_text.set_text(f"t = {sim_t[0]:.1f}s / {duration:.0f}s")
@@ -328,16 +393,17 @@ def run_live(args):
     )
 
     os.makedirs("plots", exist_ok=True)
+    suffix = f"_{args.scenario}" if args.scenario != "simple" else ""
 
     # GIF
-    gif_path = f"plots/kernel_mppi_live_{args.trajectory}.gif"
+    gif_path = f"plots/kernel_mppi_live_{args.trajectory}{suffix}.gif"
     print(f"\n  Saving GIF ({num_steps} frames) ...")
     anim.save(gif_path, writer="pillow", fps=20, dpi=100)
     print(f"  GIF saved: {gif_path}")
 
     # MP4
     try:
-        mp4_path = f"plots/kernel_mppi_live_{args.trajectory}.mp4"
+        mp4_path = f"plots/kernel_mppi_live_{args.trajectory}{suffix}.mp4"
         anim.save(mp4_path, writer="ffmpeg", fps=20, dpi=100)
         print(f"  MP4 saved: {mp4_path}")
     except Exception as e:
@@ -358,19 +424,22 @@ def run_batch(args):
     S, bw = args.support_pts, args.bandwidth
     duration = args.duration
     num_steps = int(duration / dt)
+    obstacles = OBSTACLES if args.scenario == "obstacles" else None
 
     traj_kwargs = {"radius": 3.0} if args.trajectory == "circle" else {}
     traj_fn = create_trajectory_function(args.trajectory, **traj_kwargs)
 
+    scenario_tag = f" + Obstacles" if obstacles else ""
     print(f"\n{'='*70}")
-    print(f"  Kernel MPPI Benchmark — {args.trajectory.capitalize()}")
+    print(f"  Kernel MPPI Benchmark — {args.trajectory.capitalize()}{scenario_tag}")
     print(f"  N={N}, K={K}, S={S}, bandwidth={bw}, duration={duration}s")
     print(f"{'='*70}\n")
 
     all_data = {}
 
     for model_name, cfg in MODEL_CONFIGS.items():
-        entries = setup_controllers(model_name, cfg, N, dt, K, S, bw)
+        entries = setup_controllers(model_name, cfg, N, dt, K, S, bw,
+                                    obstacles=obstacles)
 
         init_3d = traj_fn(0.0)
         for name, (model, ctrl, color) in entries.items():
@@ -379,7 +448,7 @@ def run_batch(args):
             ref_fn = make_reference_fn(traj_fn, N, dt, sd)
 
             xy_list, err_list, ctrl_list, time_list = [], [], [], []
-            ess_list, cost_list, compute_times = [], [], []
+            ess_list, cost_list, compute_times, clearance_list = [], [], [], []
 
             print(f"  Running {name} ...")
             for step in range(num_steps):
@@ -399,6 +468,14 @@ def run_batch(args):
                 ess_list.append(info.get("ess", 0.0))
                 cost_list.append(info.get("best_cost", 0.0))
 
+                if obstacles:
+                    pos = state[:2]
+                    clearances = [
+                        np.sqrt((pos[0] - ox)**2 + (pos[1] - oy)**2) - r
+                        for ox, oy, r in obstacles
+                    ]
+                    clearance_list.append(min(clearances))
+
             all_data[name] = {
                 "xy": np.array(xy_list),
                 "errors": np.array(err_list),
@@ -407,34 +484,43 @@ def run_batch(args):
                 "ess": np.array(ess_list),
                 "costs": np.array(cost_list),
                 "compute_times": np.array(compute_times),
+                "min_clearance": np.array(clearance_list) if clearance_list else np.array([]),
                 "color": color,
             }
 
     # 결과 출력
     model_names = list(MODEL_CONFIGS.keys())
+    has_obs = obstacles is not None
+    header = f"  {'Method':<22} {'RMSE':>7} {'Jerk':>7} {'ESS':>7} {'Time/step':>10}"
+    if has_obs:
+        header += f" {'MinClr':>7}"
     print(f"\n{'='*75}")
-    print(f"  {'Method':<22} {'RMSE':>7} {'Jerk':>7} {'ESS':>7} {'Time/step':>10}")
+    print(header)
     print(f"  {'-'*65}")
     for name, d in all_data.items():
         rmse = np.sqrt(np.mean(d["errors"]**2))
         jerk = np.mean(np.abs(np.diff(d["controls"][:, :2], axis=0)))
         ess = np.mean(d["ess"])
         t_ms = np.mean(d["compute_times"]) * 1000
-        print(f"  {name:<22} {rmse:>7.4f} {jerk:>7.4f} {ess:>7.1f} {t_ms:>8.1f}ms")
+        line = f"  {name:<22} {rmse:>7.4f} {jerk:>7.4f} {ess:>7.1f} {t_ms:>8.1f}ms"
+        if has_obs and len(d["min_clearance"]) > 0:
+            line += f" {np.min(d['min_clearance']):>7.3f}"
+        print(line)
     print(f"{'='*75}\n")
 
     # 정적 플롯
     if not args.no_plot:
-        plot_batch_results(all_data, model_names, args, N, S)
+        plot_batch_results(all_data, model_names, args, N, S, obstacles)
 
 
-def plot_batch_results(all_data, model_names, args, N, S):
+def plot_batch_results(all_data, model_names, args, N, S, obstacles=None):
     """배치 결과 정적 플롯"""
 
     fig = plt.figure(figsize=(18, 12))
     gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.35)
+    scenario_tag = " + Obstacles" if obstacles else ""
     fig.suptitle(
-        f"Kernel MPPI Benchmark — {args.trajectory.capitalize()}\n"
+        f"Kernel MPPI Benchmark — {args.trajectory.capitalize()}{scenario_tag}\n"
         f"N={N}, K={args.K}, S={S}, bandwidth={args.bandwidth}",
         fontsize=14, fontweight="bold",
     )
@@ -455,6 +541,14 @@ def plot_batch_results(all_data, model_names, args, N, S):
         ref_t = np.linspace(0, args.duration, 500)
         ref_pts = np.array([traj_fn(t) for t in ref_t])
         ax.plot(ref_pts[:, 0], ref_pts[:, 1], "k--", alpha=0.3, linewidth=1, label="Ref")
+
+        # 장애물 렌더링
+        if obstacles:
+            for ox, oy, r in obstacles:
+                ax.add_patch(plt.Circle((ox, oy), r, color="red", alpha=0.3))
+                ax.add_patch(plt.Circle((ox, oy), r + 0.2,
+                                        color="red", alpha=0.1, linestyle="--",
+                                        fill=False))
 
         for name, d in all_data.items():
             if name.startswith(model_name):
@@ -528,7 +622,8 @@ def plot_batch_results(all_data, model_names, args, N, S):
             bbox=dict(boxstyle="round", facecolor="lightyellow", alpha=0.8))
 
     os.makedirs("plots", exist_ok=True)
-    save_path = f"plots/kernel_mppi_benchmark_{args.trajectory}.png"
+    suffix = f"_{args.scenario}" if args.scenario != "simple" else ""
+    save_path = f"plots/kernel_mppi_benchmark_{args.trajectory}{suffix}.png"
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     print(f"  Plot saved: {save_path}")
     plt.close()
@@ -566,6 +661,11 @@ def main():
         choices=["circle", "figure8", "sine", "slalom"],
     )
     parser.add_argument("--live", action="store_true", help="Live animation mode")
+    parser.add_argument(
+        "--scenario", type=str, default="simple",
+        choices=["simple", "obstacles"],
+        help="Scenario: simple (tracking only) or obstacles (with obstacle avoidance)",
+    )
     parser.add_argument("--no-plot", action="store_true", help="Skip plot generation")
     parser.add_argument("--duration", type=float, default=15.0)
     parser.add_argument("--N", type=int, default=30, help="Horizon length")

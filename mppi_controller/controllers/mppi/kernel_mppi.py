@@ -73,8 +73,8 @@ class KernelMPPIController(MPPIController):
         params: KernelMPPIParams 파라미터
     """
 
-    def __init__(self, model: RobotModel, params: KernelMPPIParams):
-        super().__init__(model, params)
+    def __init__(self, model: RobotModel, params: KernelMPPIParams, **kwargs):
+        super().__init__(model, params, **kwargs)
 
         self.S = params.num_support_pts
         self.kernel = RBFKernel(params.kernel_bandwidth)

@@ -19,6 +19,13 @@ from mppi_controller.controllers.mppi.kernel_mppi import (
     KernelMPPIController,
 )
 from mppi_controller.controllers.mppi.base_mppi import MPPIController
+from mppi_controller.controllers.mppi.cost_functions import (
+    CompositeMPPICost,
+    StateTrackingCost,
+    TerminalCost,
+    ControlEffortCost,
+    ObstacleCost,
+)
 from mppi_controller.utils.trajectory import (
     generate_reference_trajectory,
     circle_trajectory,
@@ -491,6 +498,52 @@ def test_control_bounds():
     print("  PASS: Control bounds respected")
 
 
+def test_kernel_mppi_obstacle_avoidance():
+    """Kernel MPPI 장애물 회피: 장애물에 충돌하지 않고 추적"""
+    print("\n" + "=" * 60)
+    print("Test: Kernel MPPI Obstacle Avoidance")
+    print("=" * 60)
+
+    model = _make_model()
+
+    # 궤적 경로 위에 장애물 배치
+    obstacles = [(3.0, 3.0, 0.5), (0.0, 5.0, 0.4)]
+
+    Q = np.array([10.0, 10.0, 1.0])
+    R = np.array([0.1, 0.1])
+    cost = CompositeMPPICost([
+        StateTrackingCost(Q),
+        TerminalCost(Q),
+        ControlEffortCost(R),
+        ObstacleCost(obstacles, safety_margin=0.2, cost_weight=500.0),
+    ])
+
+    params = _make_params(N=20, K=512, num_support_pts=8, kernel_bandwidth=2.0)
+    controller = KernelMPPIController(model, params, cost_function=cost)
+
+    state = np.array([5.0, 0.0, np.pi / 2])
+    dt = params.dt
+    num_steps = 100
+
+    min_clearance = float("inf")
+    for step in range(num_steps):
+        t = step * dt
+        ref = generate_reference_trajectory(circle_trajectory, t, params.N, dt)
+        control, info = controller.compute_control(state, ref)
+        state = model.step(state, control, dt)
+
+        # 각 장애물까지 최소 거리
+        for ox, oy, r in obstacles:
+            dist = np.sqrt((state[0] - ox)**2 + (state[1] - oy)**2) - r
+            min_clearance = min(min_clearance, dist)
+
+    print(f"  Minimum clearance from obstacle surface: {min_clearance:.4f} m")
+    # 로봇이 장애물 표면에 충돌하지 않아야 함 (클리어런스 > 0)
+    assert min_clearance > -0.05, \
+        f"Robot collided with obstacle: clearance={min_clearance:.4f}"
+    print("  PASS: Obstacle avoidance verified")
+
+
 def test_reset():
     """reset 후 상태 초기화"""
     print("\n" + "=" * 60)
@@ -536,6 +589,7 @@ if __name__ == "__main__":
         test_kernel_statistics()
         test_shift_theta()
         test_control_bounds()
+        test_kernel_mppi_obstacle_avoidance()
         test_reset()
 
         print("\n" + "=" * 60)

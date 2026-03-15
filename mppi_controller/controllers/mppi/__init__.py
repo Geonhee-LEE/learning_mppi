@@ -23,6 +23,9 @@ from mppi_controller.controllers.mppi.neural_cbf_filter import NeuralCBFSafetyFi
 from mppi_controller.controllers.mppi.wbc_mppi import WBCMPPIController, WBCNoiseSampler
 from mppi_controller.controllers.mppi.diffusion_mppi import DiffusionMPPIController
 from mppi_controller.controllers.mppi.kernel_mppi import KernelMPPIController, RBFKernel
+from mppi_controller.controllers.mppi.pi_mppi import PIMPPIController
+from mppi_controller.controllers.mppi.torch_mppi import TorchMPPIController
+from mppi_controller.controllers.mppi.torch_kernel_mppi import TorchKernelMPPIController
 from mppi_controller.controllers.mppi.mppi_params import WBCMPPIParams, DiffusionMPPIParams, KernelMPPIParams
 from mppi_controller.controllers.mppi.se3_cost import (
     GeodesicOrientationCost,
@@ -65,6 +68,11 @@ __all__ = [
     "KernelMPPIController",
     "KernelMPPIParams",
     "RBFKernel",
+    # PI-MPPI
+    "PIMPPIController",
+    # Torch MPPI (Pure PyTorch)
+    "TorchMPPIController",
+    "TorchKernelMPPIController",
     # SE(3) 비용 함수
     "GeodesicOrientationCost",
     "GeodesicOrientationTerminalCost",
