@@ -9,6 +9,11 @@ from mppi_controller.learning.neural_cbf_trainer import (
 )
 from mppi_controller.learning.flow_data_collector import FlowDataCollector
 from mppi_controller.learning.flow_matching_trainer import FlowMatchingTrainer
+from mppi_controller.learning.evidential_trainer import (
+    EvidentialMLPModel,
+    EvidentialTrainer,
+    EvidentialLoss,
+)
 
 __all__ = [
     "ConformalPredictor",
@@ -18,4 +23,7 @@ __all__ = [
     "NeuralCBFTrainerConfig",
     "FlowDataCollector",
     "FlowMatchingTrainer",
+    "EvidentialMLPModel",
+    "EvidentialTrainer",
+    "EvidentialLoss",
 ]

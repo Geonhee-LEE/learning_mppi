@@ -1,6 +1,6 @@
 # 학습 기반 동역학 심층 이론 가이드
 
-> **대상 독자**: 12종 학습 모델과 고급 학습 기법의 수학적 기초를 이해하고자 하는 대학원생 및 연구자
+> **대상 독자**: 13종 학습 모델과 고급 학습 기법의 수학적 기초를 이해하고자 하는 대학원생 및 연구자
 >
 > **구현 참조**: `mppi_controller/models/learned/`, `mppi_controller/learning/`, `mppi_controller/models/differentiable/`
 
@@ -24,7 +24,8 @@
 14. [BPTT & 미분가능 시뮬레이터](#14-bptt--미분가능-시뮬레이터)
 15. [NN-Policy (행동 복제 + BPTT)](#15-nn-policy-행동-복제--bptt)
 16. [Flow Matching 이론 (CFM)](#16-flow-matching-이론-cfm)
-17. [학습 모델 선택 가이드](#17-학습-모델-선택-가이드)
+17. [Evidential Deep Learning (EDL)](#17-evidential-deep-learning-edl)
+18. [학습 모델 선택 가이드](#18-학습-모델-선택-가이드)
 
 ---
 
@@ -55,7 +56,7 @@ f_total(x, u) = f_nominal(x, u) + f_learned(x, u)
 │                   학습 모델 분류                         │
 ├──────────────┬──────────────────────────────────────────┤
 │ 지도 학습     │ NeuralDynamics, ResidualDynamics         │
-│ 베이지안      │ GP, Ensemble, MCDropout, ALPaCA          │
+│ 베이지안      │ GP, Ensemble, MCDropout, ALPaCA, EDL     │
 │ 메타 학습     │ MAML, LoRA                               │
 │ 적응 제어     │ EKF, L1 Adaptive                         │
 │ 생성 모델     │ Flow Matching                            │
@@ -2919,7 +2920,218 @@ Flow-MPPI에서 컨텍스트 = 현재 로봇 상태 + 환경 정보
 
 ---
 
-## 17. 학습 모델 선택 가이드
+## 17. Evidential Deep Learning (EDL)
+
+### 17.1 직관
+
+기존 불확실성 추정 방법(앙상블, MC-Dropout)은 M회 forward pass가 필요하여
+추론 시간이 M배 증가한다. **Evidential Deep Learning**은 단일 forward pass로
+**Normal-Inverse-Gamma (NIG) 분포**의 4개 파라미터를 출력하여,
+aleatoric(데이터 노이즈)과 epistemic(모델 불확실성)을 동시에 분리한다.
+
+핵심 아이디어: 신경망이 **예측값**이 아닌 **분포의 파라미터**를 출력하도록 학습한다.
+이는 "예측에 대한 불확실성"을 모델링하는 **higher-order** 접근법이다.
+
+```
+기존 방법: NN(x) → ŷ (점 추정)
+앙상블:    {NN_i(x)}_{i=1}^M → ŷ_1, ..., ŷ_M → 분산 계산 (M회 추론)
+EDL:       NN(x) → (γ, ν, α, β)  → aleatoric + epistemic (1회 추론)
+```
+
+### 17.2 Normal-Inverse-Gamma (NIG) 분포
+
+관측 모델과 사전 분포를 다음과 같이 정의한다:
+
+```
+관측 모델:    y | μ, σ² ~ N(μ, σ²)
+사전 분포:    σ² ~ IG(α, β)         (Inverse-Gamma)
+             μ | σ² ~ N(γ, σ²/ν)    (Normal)
+
+결합 사전:    (μ, σ²) ~ NIG(γ, ν, α, β)
+```
+
+여기서:
+- **γ (gamma)**: 예측 평균 (위치 파라미터)
+- **ν (nu)**: 가상 관측 수 (평균의 정밀도, ν > 0)
+- **α (alpha)**: 분산 사전의 형태 파라미터 (α > 1)
+- **β (beta)**: 분산 사전의 스케일 파라미터 (β > 0)
+
+### 17.3 NIG 한계 우도(Marginal Likelihood)
+
+(μ, σ²)를 적분 소거하면 관측 y의 한계 분포는 Student-t가 된다:
+
+```
+p(y | γ, ν, α, β) = ∫∫ p(y|μ,σ²) p(μ,σ²|γ,ν,α,β) dμ dσ²
+
+                   = St(y; γ, β(1+ν)/(να), 2α)
+
+여기서 St(·; μ_t, σ²_t, ν_t)는 Student-t 분포
+```
+
+**NIG 음의 로그-우도 (NLL)**:
+
+```
+L_NLL = (1/2)log(π/ν) - α·log(Ω)
+        + (α + 1/2)·log((y - γ)² ν + Ω)
+        + log(Γ(α)/Γ(α + 1/2))
+
+여기서 Ω = 2β(1 + ν)
+```
+
+### 17.4 KL 정규화 (Evidence Regularizer)
+
+NLL만으로 학습하면 모든 데이터에 대해 높은 evidence(큰 ν, α)를 생성하여
+과신(overconfidence)이 발생한다. 이를 방지하기 위해 **틀린 예측에 대해
+evidence를 억제**하는 정규화를 추가한다:
+
+```
+L_KL = |y - γ| · (2ν + α)
+
+직관:
+- |y - γ|가 크면 (예측 오류 큼): evidence penalty 증가 → ν, α 감소 → 불확실성 증가
+- |y - γ|가 작으면 (예측 정확): penalty 미미 → evidence 유지
+```
+
+**전체 손실 함수:**
+
+```
+L = L_NLL + λ · L_KL
+
+λ: 정규화 가중치 (보통 0.01 ~ 0.1)
+어닐링: λ_t = min(1, t/T_anneal) · λ  (초기에는 NLL만으로 수렴 촉진)
+```
+
+### 17.5 불확실성 분해
+
+NIG 파라미터로부터 두 가지 불확실성을 해석적으로 계산한다:
+
+```
+Aleatoric (데이터 노이즈):
+  E[σ²] = β / (α - 1)
+  → 데이터 자체의 내재적 노이즈, 더 많은 데이터로도 줄일 수 없음
+  → α가 커질수록 (evidence 증가) 추정이 정밀해짐
+
+Epistemic (모델 불확실성):
+  Var[μ] = β / (ν · (α - 1))
+  → 학습 데이터 부족으로 인한 불확실성
+  → ν가 커질수록 (가상 관측 증가) 감소
+  → 더 많은 데이터로 줄일 수 있음
+
+총 예측 불확실성:
+  Var[y] = E[σ²] · (1 + 1/ν)
+         = β(ν + 1) / (ν(α - 1))
+```
+
+### 17.6 구현 핵심
+
+**EvidentialMLPModel**: 4개 head로 NIG 파라미터를 출력한다.
+
+```
+입력: [x, u] (state + control)
+  │
+  ├── 공유 MLP: [128, 128, 64] + ReLU
+  │
+  ├── γ head:  Linear → 값 그대로 (제약 없음)
+  ├── ν head:  Linear → softplus (> 0 보장)
+  ├── α head:  Linear → softplus + 1 (> 1 보장)
+  └── β head:  Linear → softplus (> 0 보장)
+
+softplus(x) = log(1 + exp(x))  — smooth ReLU, 양수 보장
+α + 1 변환으로 α > 1을 보장하여 E[σ²] = β/(α-1) 발산 방지
+```
+
+**EvidentialTrainer**: NIG NLL + KL 정규화 + 어닐링
+
+```python
+# 학습 루프 핵심
+for epoch in range(epochs):
+    gamma, nu, alpha, beta = model(x, u)
+
+    # 어닐링 계수
+    anneal = min(1.0, epoch / annealing_epochs) if annealing else 1.0
+
+    # 손실 = NIG NLL + λ · KL
+    loss = nig_nll(y, gamma, nu, alpha, beta) \
+         + lambda_reg * anneal * kl_regularizer(y, gamma, nu, alpha)
+
+    loss.backward()
+    optimizer.step()
+```
+
+**EvidentialNeuralDynamics**: MPPI 동역학 래퍼
+
+```python
+class EvidentialNeuralDynamics(RobotModel):
+    def forward_dynamics(self, state, control, dt):
+        gamma, nu, alpha, beta = self.model.forward(state, control)
+        next_state = state + gamma * dt    # 평균 예측
+        return next_state
+
+    def predict_with_uncertainty(self, state, control):
+        gamma, nu, alpha, beta = self.model.forward(state, control)
+        aleatoric = beta / (alpha - 1)             # 데이터 노이즈
+        epistemic = beta / (nu * (alpha - 1))      # 모델 불확실성
+        return gamma, aleatoric, epistemic
+```
+
+### 17.7 Ensemble vs MC-Dropout vs EDL 비교
+
+```
+┌──────────────────┬────────────────┬────────────────┬────────────────┐
+│ 특성              │ Ensemble       │ MC-Dropout     │ EDL            │
+├──────────────────┼────────────────┼────────────────┼────────────────┤
+│ Forward passes   │ M              │ M              │ 1              │
+│ 파라미터 수       │ M × P          │ P              │ ~P             │
+│ 학습 비용         │ M배            │ 1배            │ 1배            │
+│ 불확실성 분해     │ ✗              │ ✗              │ ✓ alea + epi   │
+│ 추론 속도         │ O(M)           │ O(M)           │ O(1)           │
+│ OOD 탐지         │ ★★★★          │ ★★★           │ ★★★★          │
+│ 정확도           │ ★★★★★         │ ★★★           │ ★★★★          │
+│ 구현 복잡도       │ 중간           │ 낮음           │ 중간           │
+│ 캘리브레이션      │ 높음           │ 중간           │ 중간-높음      │
+└──────────────────┴────────────────┴────────────────┴────────────────┘
+
+핵심 트레이드오프:
+  - Ensemble: 최고 정확도, 최대 계산 비용
+  - MC-Dropout: 구현 간단, 중간 품질
+  - EDL: 최고 추론 속도, 불확실성 분해 가능 (실시간에 최적)
+```
+
+### 17.8 로봇 제어에서의 EDL 활용
+
+```
+불확실성 기반 비용 (Uncertainty-Aware Cost):
+  J_unc(τ) = J_tracking(τ) + w_epi · Σ_t epistemic(x_t, u_t)
+                            + w_alea · Σ_t aleatoric(x_t, u_t)
+
+→ Epistemic이 높은 영역: 탐색 부족 → 샘플링 노이즈 증가 또는 회피
+→ Aleatoric이 높은 영역: 데이터 노이즈 → 보수적 제어 (감속)
+
+BNN-MPPI와의 결합:
+  - EDL의 epistemic → BNN-MPPI의 feasibility 비용으로 직접 대체 가능
+  - 앙상블 M회 추론 대신 EDL 1회로 동일한 불확실성 정보 획득
+
+Uncertainty-Aware MPPI와의 결합:
+  - EDL의 epistemic → 적응 샘플링 노이즈 σ 스케일링
+  - 불확실한 영역에서 탐색 강화, 확실한 영역에서 활용 강화
+```
+
+### 구현
+
+- **모델**: `models/learned/evidential_model.py:EvidentialMLPModel`
+  - `forward()`: NIG 4 파라미터 출력 (gamma, nu, alpha, beta)
+  - `predict_with_uncertainty()`: aleatoric/epistemic 분해
+- **학습**: `learning/evidential_trainer.py:EvidentialTrainer`
+  - `nig_nll()`: NIG 음의 로그-우도
+  - `kl_divergence_regularizer()`: evidence penalty
+  - 어닐링 스케줄 지원
+- **동역학 래퍼**: `models/learned/evidential_dynamics.py:EvidentialNeuralDynamics`
+  - `forward_dynamics()`: 평균 예측
+  - `predict_with_uncertainty()`: 불확실성 분해 포함 예측
+
+---
+
+## 18. 학습 모델 선택 가이드
 
 ### 의사결정 트리
 
@@ -2934,7 +3146,8 @@ Flow-MPPI에서 컨텍스트 = 현재 로봇 상태 + 환경 정보
 │  └─ 있음 ─┐
 │           │
 ├─ 불확실성이 필요한가?
-│  ├─ Yes ─┬─ 데이터 적음?       → GP 또는 ALPaCA
+│  ├─ Yes ─┬─ 추론 속도 중요?    → EDL (1회 패스, alea+epi 분해)
+│  │       ├─ 데이터 적음?       → GP 또는 ALPaCA
 │  │       ├─ 데이터 많음?       → Ensemble
 │  │       └─ 메모리 제한?       → MC-Dropout
 │  └─ No ─┐
@@ -2977,6 +3190,7 @@ Flow-MPPI에서 컨텍스트 = 현재 로봇 상태 + 환경 정보
 │ LoRA         │ ★★★★ │ O(r·d) │ ✗     │ SGD    │ 메타+온 │
 │ Flow         │ ★★★  │ O(K·S) │ ✗     │ 온라인  │ 자기지도│
 │ NN-Policy    │ ★★★  │ O(1)   │ ✗     │ BPTT   │ BC+BPTT│
+│ EDL          │ ★★★  │ O(1)   │ ✓ 분해 │ ✗      │ 오프    │
 └──────────────┴───────┴────────┴────────┴────────┴────────┘
 ```
 
@@ -2985,6 +3199,7 @@ Flow-MPPI에서 컨텍스트 = 현재 로봇 상태 + 환경 정보
 | 시나리오 | 추천 모델 | 이유 |
 |---------|----------|------|
 | 데이터 풍부 + 불확실성 | Ensemble 또는 GP | 정확한 불확실성 추정 |
+| 실시간 불확실성 | EDL | 1회 패스, aleatoric/epistemic 분해 |
 | 데이터 부족 + 적응 | ALPaCA 또는 MAML | 소수 데이터 적응 |
 | 실시간 + 학습 불가 | EKF 또는 L1 | 학습 데이터 불필요, 즉시 적응 |
 | Sim-to-Real | MAML 또는 LoRA | 메타 학습된 초기값 + 빠른 적응 |
@@ -3033,7 +3248,7 @@ Flow-MPPI에서 컨텍스트 = 현재 로봇 상태 + 환경 정보
 │ (RTX 3080+)      │              │ Ensemble 권장 │              │
 ├──────────────────┼──────────────┼──────────────┼──────────────┤
 │ 임베디드 GPU      │ 메모리 4-8GB │ NN, LoRA,    │ GP (N↑시),   │
-│ (Jetson Orin)    │ 전력 15-40W  │ EKF, L1      │ Ensemble (M↑)│
+│ (Jetson Orin)    │ 전력 15-40W  │ EKF, L1, EDL │ Ensemble (M↑)│
 ├──────────────────┼──────────────┼──────────────┼──────────────┤
 │ CPU 전용         │ 추론 속도     │ EKF, L1,     │ GP, Ensemble,│
 │ (ARM Cortex-A)   │              │ ALPaCA       │ Flow         │
@@ -3055,6 +3270,7 @@ Flow-MPPI에서 컨텍스트 = 현재 로봇 상태 + 환경 정보
 
 예산 10-50ms (일반 로봇):
   → NN/Residual 동역학 + Vanilla MPPI (K=256)
+  → EDL (단일 패스 불확실성, 앙상블 대비 M배 절약)
   → ALPaCA (닫힌 형태 적응 포함)
   → MC-Dropout (T=5)
 
@@ -3089,3 +3305,5 @@ Flow-MPPI에서 컨텍스트 = 현재 로봇 상태 + 환경 정보
 13. Gal, Y. et al. (2017). "Concrete Dropout." NeurIPS.
 14. Krogh, A. & Vedelsby, J. (1995). "Neural Network Ensembles, Cross Validation and Active Learning." NeurIPS.
 15. Ross, S. et al. (2011). "A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning." AISTATS.
+16. Amini, A. et al. (2020). "Deep Evidential Regression." NeurIPS.
+17. Sensoy, M. et al. (2018). "Evidential Deep Learning to Quantify Classification Uncertainty." NeurIPS.

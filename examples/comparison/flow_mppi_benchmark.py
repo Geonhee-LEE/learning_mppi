@@ -136,13 +136,13 @@ def _setup_common(scenario_key):
 
     model = DifferentialDriveKinematic(wheelbase=0.5)
     dt = 0.05
-    duration = 5.0
+    duration = 10.0
     initial_state = np.array([0.0, 0.0, 0.0])
-    N, K = 20, 128
+    N, K = 30, 512
 
     Q = np.array([10.0, 10.0, 1.0])
     R = np.array([0.1, 0.1])
-    sigma = np.array([0.5, 0.5])
+    sigma = np.array([0.8, 0.8])
 
     traj_fn = lambda t: circle_trajectory(t, radius=3.0)
 
@@ -154,16 +154,21 @@ def _setup_common(scenario_key):
     def make_cost(obstacles):
         costs = [StateTrackingCost(Q), TerminalCost(Q), ControlEffortCost(R)]
         if obstacles:
-            costs.append(ObstacleCost(obstacles, cost_weight=500.0))
+            costs.append(ObstacleCost(obstacles, cost_weight=2000.0, safety_margin=0.3))
         return CompositeMPPICost(costs)
 
     # 컨트롤러 생성
     vanilla_params = MPPIParams(N=N, K=K, dt=dt, sigma=sigma, Q=Q, R=R)
     vanilla_ctrl = MPPIController(model, vanilla_params, make_cost(obs))
 
+    dial_sigma = np.array([0.5, 0.5]) if obs else sigma
     dial_params = DIALMPPIParams(
-        N=N, K=K, dt=dt, sigma=sigma, Q=Q, R=R,
-        n_diffuse_init=5, n_diffuse=2,
+        N=N, K=K, dt=dt, sigma=dial_sigma, Q=Q, R=R,
+        lambda_=0.5,
+        n_diffuse_init=10, n_diffuse=3,
+        traj_diffuse_factor=0.7,
+        sigma_scale=0.8,
+        use_reward_normalization=False,
     )
     dial_ctrl = DIALMPPIController(model, dial_params, make_cost(obs))
 

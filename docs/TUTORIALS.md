@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-15종 MPPI 변형, 22종 안전 제어, 12종 학습 모델을 포괄하는 실습 가이드입니다.
+15종 MPPI 변형, 22종 안전 제어, 13종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -683,6 +683,48 @@ PYTHONPATH=. python examples/comparison/bnn_mppi_benchmark.py --all-scenarios
 | `max_filter_ratio` | 최대 필터 비율 | 0.5 |
 | `uncertainty_reduce` | 차원 축소 ("sum"\|"max"\|"mean") | "sum" |
 
+### 9.6 Evidential Deep Learning (EDL) 벤치마크
+
+단일 forward pass로 Normal-Inverse-Gamma (NIG) 분포 파라미터를 출력하여
+aleatoric(데이터 노이즈)과 epistemic(모델 불확실성)을 분리합니다.
+앙상블 대비 M배 빠른 추론이 핵심 장점입니다.
+
+```bash
+# 기본 벤치마크 (clean 시나리오)
+PYTHONPATH=. python examples/comparison/edl_benchmark.py
+
+# 노이즈 시나리오 (EDL 불확실성 분리 우위)
+PYTHONPATH=. python examples/comparison/edl_benchmark.py --scenario noisy
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/edl_benchmark.py --scenario obstacle
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/edl_benchmark.py --all-scenarios
+
+# 플롯 없이 (headless)
+PYTHONPATH=. python examples/comparison/edl_benchmark.py --no-plot
+```
+
+**EDL 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `lambda_reg` | KL 정규화 가중치 (evidence penalty) | 0.1 |
+| `annealing` | 정규화 어닐링 활성화 | True |
+| `annealing_epochs` | 어닐링 완료 에포크 수 | 50 |
+| `hidden_dims` | MLP 히든 레이어 차원 | [128, 128, 64] |
+
+**Ensemble vs MC-Dropout vs EDL 비교:**
+
+| | Ensemble | MC-Dropout | EDL |
+|---|---|---|---|
+| Forward passes | M | M | 1 |
+| 파라미터 수 | M x P | P | ~P |
+| 학습 비용 | M배 | 1배 | 1배 |
+| 불확실성 분해 | 불가 | 불가 | aleatoric + epistemic |
+| 추론 속도 | O(M) | O(M) | O(1) |
+
 ### 기대 결과
 
 - Uncertainty-Aware: Clean 시나리오에서 Vanilla 대비 +59% 개선
@@ -690,6 +732,7 @@ PYTHONPATH=. python examples/comparison/bnn_mppi_benchmark.py --all-scenarios
 - C2U-MPPI: 노이즈 환경에서 C2U > UncMPPI > Vanilla 안전성 순서
 - Neural CBF: 비볼록 장애물에서 분석적 CBF 대비 명확한 우위
 - BNN-MPPI: 불확실 영역 회피, obstacle 시나리오에서 Vanilla보다 안전하고 보수적
+- EDL: 단일 패스로 앙상블 수준 불확실성, 추론 속도 M배 향상
 
 ---
 

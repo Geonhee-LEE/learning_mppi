@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-1200%2B%20Passing-brightgreen)](tests/)
 
-A comprehensive MPPI (Model Predictive Path Integral) control library featuring 16 SOTA variants, **22 safety-critical control methods**, 12 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
+A comprehensive MPPI (Model Predictive Path Integral) control library featuring 16 SOTA variants, **22 safety-critical control methods**, 13 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **Evidential Deep Learning (EDL)** for single-pass aleatoric/epistemic uncertainty separation, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
 
 ## Key Features
 
@@ -85,7 +85,7 @@ Enable GPU acceleration with just `device="cuda"`. No changes to existing CPU co
 
 ### Learning-Based Models
 
-- **12 model types**: Neural Network, Gaussian Process, Residual, Ensemble NN, MC-Dropout Bayesian NN, **MAML (Meta-Learning)**, **EKF Adaptive**, **L1 Adaptive**, **ALPaCA (Bayesian)**, **Flow Matching** (CFM velocity field), **Diffusion** (DDPM/DDIM), **Neural CBF** (learned barrier)
+- **13 model types**: Neural Network, Gaussian Process, Residual, Ensemble NN, MC-Dropout Bayesian NN, **MAML (Meta-Learning)**, **EKF Adaptive**, **L1 Adaptive**, **ALPaCA (Bayesian)**, **Flow Matching** (CFM velocity field), **Diffusion** (DDPM/DDIM), **Neural CBF** (learned barrier), **EDL** (Evidential Deep Learning, single-pass aleatoric/epistemic uncertainty)
 - **MAML meta-learning**: FOMAML/Reptile-based few-shot adaptation — Residual MAML-5D achieves 0.055m RMSE under combined disturbances (noise=0.7)
 - **Post-MAML adaptation**: EKF (parameter estimation), L1 (disturbance estimation + low-pass filter), ALPaCA (Bayesian linear regression)
 - **Disturbance simulation**: WindGust, TerrainChange, Sinusoidal, Combined profiles for evaluating model adaptation
@@ -992,7 +992,7 @@ Python 3.12.12 | pytest 9.0.2 | 72 test files | 0 failures
 | **MPPI Controllers** | 12 | 87 | Vanilla, Tube, Log, Tsallis, Risk-Aware, Smooth, Spline, SVG, SVMPC, DIAL, Shield-DIAL, GPU |
 | **Safety-Critical** | 13 | 158 | CBF, Shield, Adaptive Shield, C3BF, Hard/Horizon CBF, Gatekeeper, MPS, CBF-Guided, Shield-SVG, Shield-DIAL, Conformal CBF |
 | **Robot Models** | 1 | 69 | DiffDrive/Ackermann/Swerve (Kinematic+Dynamic) |
-| **Learning Models** | 9 | 150 | Neural, GP, Residual, Ensemble, MC-Dropout, MAML, EKF, L1, ALPaCA |
+| **Learning Models** | 10 | 176 | Neural, GP, Residual, Ensemble, MC-Dropout, MAML, EKF, L1, ALPaCA, EDL |
 | **LotF (LoRA/BPTT/DiffSim)** | 1 | 35 | LoRA adaptation, Spectral reg, DiffSim, BPTT, NN-Policy |
 | **6-DOF Benchmark** | 1 | 18 | 8-Way learned model comparison (NN/GP/Ensemble/MCDrop/MAML/ALPaCA) |
 | **Flow-MPPI** | 1 | 31 | Flow Matching model, sampler, data collector, trainer, controller |
@@ -1095,11 +1095,11 @@ python -m pytest tests/test_cbf_mppi.py tests/test_shield_mppi.py tests/test_ada
 # Robot Models (DiffDrive / Ackermann / Swerve × Kinematic / Dynamic)
 python -m pytest tests/test_robot_models.py -v --override-ini="addopts="
 
-# Learning Models (Neural / GP / Residual / Ensemble / MC-Dropout / MAML / EKF / L1 / ALPaCA)
+# Learning Models (Neural / GP / Residual / Ensemble / MC-Dropout / MAML / EKF / L1 / ALPaCA / EDL)
 python -m pytest tests/test_neural_dynamics.py tests/test_gaussian_process_dynamics.py \
   tests/test_residual_dynamics.py tests/test_ensemble_validator_uncertainty.py \
   tests/test_mc_dropout_checkpoint.py tests/test_maml.py tests/test_ekf_dynamics.py \
-  tests/test_l1_adaptive.py tests/test_alpaca.py \
+  tests/test_l1_adaptive.py tests/test_alpaca.py tests/test_edl.py \
   -v --override-ini="addopts="
 
 # Nav2 Integration
@@ -1204,6 +1204,7 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 | Sim-to-real adaptation | Online Learning | Real-time model adaptation |
 | Time-varying disturbance | MAML-5D | Few-shot online adaptation |
 | Adaptive + safe control | EKF/L1 + Shield | Real-time adaptation + safety |
+| Real-time uncertainty | EDL | Single-pass aleatoric/epistemic separation, O(1) inference |
 
 ---
 
@@ -1302,7 +1303,7 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 - [ ] **Decentralized Multi-Agent MPPI** — SOCP 기반 분산 MPPI로 다중 로봇 협조 제어
 
 ### 학습 모델 확장
-- [ ] **Evidential Deep Learning (EDL)** — 단일 패스 인식론적/우연적 불확실성 분리 (앙상블 대비 10x 속도)
+- [x] **Evidential Deep Learning (EDL)** — 단일 패스 인식론적/우연적 불확실성 분리 (앙상블 대비 10x 속도)
 - [ ] **Learnable Conformal Prediction** — 문맥 인식 비적합성 함수로 안전 마진 72→91% 향상
 - [x] **BNN-MPPI** — BNN 대리 모델을 통한 앙상블 불확실성 feasibility 필터링 (16th variant)
 - [ ] **Neural Safety Verifier** — SDP/CROWN 추상화 기반 신경망 안전성 검증

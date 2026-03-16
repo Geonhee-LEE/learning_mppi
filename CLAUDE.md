@@ -9,7 +9,7 @@
 ## 프로젝트 개요
 
 MPPI (Model Predictive Path Integral) 기반 모바일 로봇 제어 시스템
-- 15종 MPPI 변형, 22종 안전 제어, 12종 학습 모델
+- 15종 MPPI 변형, 22종 안전 제어, 13종 학습 모델
 - 1100+ tests / 72 files / ~47,000+ lines
 
 ## 인터페이스 규칙
