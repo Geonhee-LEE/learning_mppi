@@ -1194,14 +1194,17 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 
 ### MPPI Controller Ranking (Trajectory Tracking)
 
-| Rank | Controller | Clean RMSE | Obstacles RMSE | Speed | Verdict |
-|:---:|-----------|:---:|:---:|:---:|---------|
-| **1** | **Vanilla MPPI** | **0.018m** | 0.036m | **1.1ms** | Surprisingly strong. Simplest = most robust. |
-| 2 | Flow-MPPI | 0.546m* | **0.779m*** | 3.4ms | Best for obstacles, but requires bootstrap warmup. |
-| 3 | DIAL-MPPI | 0.507m* | 0.920m* | 7.9ms | `reward_normalization` bug degrades obstacle avoidance. |
-| 4 | BNN-MPPI | 0.045m | 0.081m | 1.5ms | Over-conservative filtering hurts clean performance. |
+> Fair comparison: all controllers use identical settings (K=512, N=30, dt=0.05, radius=3.0, duration=10s).
 
-*Flow/DIAL benchmarked on 10s longer duration with larger radius — not directly comparable to Vanilla/BNN 5s runs.
+| Rank | Controller | Simple RMSE | Noisy RMSE | Obstacles RMSE | Speed | Verdict |
+|:---:|-----------|:---:|:---:|:---:|:---:|---------|
+| **1** | **DIAL-MPPI** | **0.996** | — | 1.187 | 6.9ms | Best in simple. Iterative annealing converges faster. |
+| 2 | BNN-MPPI | 1.004 | **1.032** | 1.110 | 3.3ms | Best in noisy. Feasibility cost adds robustness. |
+| 3 | Vanilla MPPI | 1.019 | 1.077 | 1.080 | **2.5ms** | Solid baseline in all scenarios. Often sufficient. |
+| 4 | Flow-MPPI | 1.034 | — | **1.093** | 3.0ms | Best for obstacles. CFM multi-modal sampling finds avoidance paths. |
+| 5 | Uncertainty-MPPI | 1.067 | 1.055 | 1.095 | 2.6ms | Competitive in noisy. Depends on uncertainty model quality. |
+
+All variants within ±15% RMSE — the base MPPI algorithm is strong; variants provide marginal gains.
 
 ### Known Defects
 
@@ -1209,13 +1212,13 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 |-----------|-------|:--------:|
 | DIAL `reward_normalization=True` | High costs → uniform weights → avoidance failure | **HIGH** |
 | EDL OOD evidence collapse | epistemic→0 on extrapolation (safety risk) | **HIGH** |
-| BNN-MPPI feasibility filter | Over-filtering in clean environments (2.5x RMSE) | MED |
+| BNN-MPPI feasibility filter | May over-filter in clean environments | MED |
 
 ## Use Case Recommendations
 
 | Scenario | Recommended Variant | Reason |
 |----------|-------------------|--------|
-| **Simple tracking (start here)** | **Vanilla MPPI** | **0.018m RMSE, 1.1ms. Often sufficient.** |
+| **Simple tracking (start here)** | **Vanilla MPPI** | **1.02 RMSE, 2.5ms. Often sufficient.** |
 | Real-time control | Vanilla, Tube, Log | ~5ms ultra-fast |
 | Large-scale sampling | Vanilla + GPU | K=8192 at ~4ms |
 | Disturbance-prone | Tube-MPPI | Nominal + feedback robustness |

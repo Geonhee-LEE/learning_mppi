@@ -117,7 +117,7 @@ def compute_rmse(states, reference_fn, dt):
         t = i * dt
         ref = reference_fn(t, 2, dt)
         errors.append(np.linalg.norm(s[:2] - ref[0, :2]))
-    return np.mean(errors)
+    return np.sqrt(np.mean(np.array(errors) ** 2))
 
 
 # ── 벤치마크 실행 ──────────────────────────────────────────

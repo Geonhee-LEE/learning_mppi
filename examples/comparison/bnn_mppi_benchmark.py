@@ -90,9 +90,9 @@ class DistanceBasedUncertainty:
 # ── 시나리오 설정 ────────────────────────────────────────────
 
 OBSTACLES = [
-    (4.0, 2.5, 0.4),
-    (-2.0, 3.5, 0.5),
-    (1.0, -4.5, 0.3),
+    (2.5, 2.0, 0.4),
+    (-1.5, 3.0, 0.5),
+    (1.0, -3.0, 0.3),
 ]
 
 
@@ -121,10 +121,10 @@ def get_scenarios():
 
 def create_trajectory_fn(name):
     if name == "circle":
-        return circle_trajectory
+        return lambda t: circle_trajectory(t, radius=3.0)
     elif name == "figure8":
         return figure_eight_trajectory
-    return circle_trajectory
+    return lambda t: circle_trajectory(t, radius=3.0)
 
 
 # ── 시뮬레이션 실행 (SimulationHarness 기반) ──────────────────
@@ -198,12 +198,12 @@ def run_benchmark(args):
     print(f"  Trajectory: {args.trajectory} | Duration: {args.duration}s | Seed: {args.seed}")
     print(f"{'=' * 72}")
 
-    model = DifferentialDriveKinematic(v_max=1.0, omega_max=1.0)
-    initial_state = trajectory_fn(0.0)
+    model = DifferentialDriveKinematic(wheelbase=0.5)
+    initial_state = np.array([0.0, 0.0, 0.0])
     unc_model = scenario["unc_model"]
 
     common = dict(
-        K=256, N=20, dt=0.05, lambda_=1.0,
+        K=512, N=30, dt=0.05, lambda_=1.0,
         sigma=np.array([0.5, 0.5]),
         Q=np.array([10.0, 10.0, 1.0]),
         R=np.array([0.1, 0.1]),
@@ -218,7 +218,7 @@ def run_benchmark(args):
                 StateTrackingCost(params.Q),
                 TerminalCost(params.Qf),
                 ControlEffortCost(params.R),
-                ObstacleCost(scenario["obstacles"], safety_margin=0.1, cost_weight=200.0),
+                ObstacleCost(scenario["obstacles"], safety_margin=0.3, cost_weight=2000.0),
             ])
             return MPPIController(model, params, cost_function=cost)
         return MPPIController(model, params)
@@ -234,7 +234,7 @@ def run_benchmark(args):
                 StateTrackingCost(params.Q),
                 TerminalCost(params.Qf),
                 ControlEffortCost(params.R),
-                ObstacleCost(scenario["obstacles"], safety_margin=0.2, cost_weight=200.0),
+                ObstacleCost(scenario["obstacles"], safety_margin=0.3, cost_weight=2000.0),
             ])
             return UncertaintyMPPIController(
                 model, params, cost_function=cost, uncertainty_fn=unc_model,
@@ -256,7 +256,7 @@ def run_benchmark(args):
                 StateTrackingCost(params.Q),
                 TerminalCost(params.Qf),
                 ControlEffortCost(params.R),
-                ObstacleCost(scenario["obstacles"], safety_margin=0.15, cost_weight=200.0),
+                ObstacleCost(scenario["obstacles"], safety_margin=0.3, cost_weight=2000.0),
             ])
             return BNNMPPIController(
                 model, params, cost_function=cost, uncertainty_fn=unc_model,
@@ -532,7 +532,7 @@ def main():
     parser.add_argument("--all-scenarios", action="store_true")
     parser.add_argument("--trajectory", default="circle",
                         choices=["circle", "figure8"])
-    parser.add_argument("--duration", type=float, default=5.0)
+    parser.add_argument("--duration", type=float, default=10.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()

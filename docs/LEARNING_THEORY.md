@@ -3214,19 +3214,21 @@ Uncertainty-Aware MPPI와의 결합:
 
 #### MPPI 변형 순위 (컨트롤러)
 
-| 순위 | 컨트롤러 | Simple RMSE | Obstacle RMSE | 속도 | 근거 |
-|:---:|---------|:---:|:---:|:---:|------|
-| **1** | **Vanilla MPPI** | 0.018 | 0.036 | 1.1ms | 단순하고 빠르고 안정적. 대부분 시나리오에서 충분 |
-| **2** | Flow-MPPI | 0.546 (10s) | **0.779 (10s)** | 3.4ms | 장애물 환경에서 최우수. 단, bootstrap 필수 + 계산 비용 3배 |
-| **3** | DIAL-MPPI | **0.507 (10s)** | 0.920 (10s) | 7.9ms | Simple에서 최우수이지만, **장애물에서 reward_norm 문제 발생**. 파라미터 민감도 높음 |
-| **4** | Uncertainty-MPPI | 0.020 | 0.071 | 1.2ms | 소폭 개선 but 불확실성 모델 의존. 학습 모델 없으면 무의미 |
-| **5** | BNN-MPPI | 0.045 | 0.081 | 1.5ms | Vanilla 대비 오히려 RMSE 악화 (Clean 0.018→0.045). 보수적 필터링이 과도 |
+> **공정 비교 조건**: 모든 컨트롤러를 동일 설정으로 측정 (K=512, N=30, dt=0.05, radius=3.0, duration=10s, DifferentialDriveKinematic).
+
+| 순위 | 컨트롤러 | Simple RMSE | Noisy RMSE | Obstacle RMSE | 속도 | 근거 |
+|:---:|---------|:---:|:---:|:---:|:---:|------|
+| **1** | **DIAL-MPPI** | **0.996** | — | 1.187 | 6.9ms | Simple 최우수. 반복 어닐링이 수렴 가속. 단 장애물에서 열위 |
+| **2** | BNN-MPPI | 1.004 | **1.032** | 1.110 | 3.3ms | Noisy 최우수. Feasibility 비용이 노이즈에 강건 |
+| **3** | Vanilla MPPI | 1.019 | 1.077 | 1.080-1.106 | 2.5ms | 모든 시나리오에서 안정적. 기준선으로 충분 |
+| **4** | **Flow-MPPI** | 1.034 | — | **1.093** | 3.0ms | Obstacle 최우수. CFM 다중 모달 샘플링이 회피 경로 발견 |
+| **5** | Uncertainty-MPPI | 1.067 | 1.055 | 1.095 | 2.6ms | Noisy에서 BNN에 근접. 불확실성 모델 의존 |
 
 **핵심 관찰**:
-1. **Vanilla MPPI가 놀라울 정도로 강력** — Clean 시나리오에서 0.018m으로 모든 변형보다 우수. 복잡한 변형이 반드시 개선을 보장하지 않음
-2. **DIAL-MPPI의 reward normalization은 결함** — `use_reward_normalization=True` (기본값)에서 높은 장애물 비용이 정규화로 상쇄되어 ESS→uniform, 회피 실패. **반드시 False로 설정 필요**
-3. **BNN-MPPI는 과보수적** — feasibility 필터링이 좋은 궤적도 제거. Clean에서 Vanilla의 2.5배 RMSE
-4. **Flow-MPPI는 장애물 전용** — Bootstrap 비용 대비 simple에서는 Vanilla보다 열위. 다중 모달 경로가 필요한 환경에서만 가치
+1. **모든 변형이 ±15% 내** — RMSE 0.996~1.187로 차이 미미. MPPI 기반 알고리즘 자체가 강력하여 변형의 한계 효과가 작음
+2. **시나리오별 최적이 다름** — Simple: DIAL, Noisy: BNN, Obstacles: Flow. "만능" 변형은 없음
+3. **Vanilla가 기준선으로 강력** — 모든 시나리오에서 3위 이내. 추가 복잡도 대비 개선이 제한적
+4. **DIAL-MPPI 장애물 약점** — `use_reward_normalization=True`에서 ESS→uniform 문제. False 필수
 
 #### 알려진 결함
 
@@ -3234,7 +3236,7 @@ Uncertainty-Aware MPPI와의 결합:
 |---------|------|:---:|------|
 | DIAL-MPPI `reward_normalization` | 높은 비용에서 가중치 uniform화 → 회피 실패 | **HIGH** | 벤치마크에서 False로 우회 |
 | EDL OOD evidence collapse | 극단적 OOD에서 epistemic→0 (안전 위협) | **HIGH** | 구조적 한계, 해결 어려움 |
-| BNN-MPPI feasibility filter | Clean 환경에서도 과필터링 → RMSE 악화 | **MED** | threshold 튜닝으로 완화 가능 |
+| BNN-MPPI feasibility filter | Clean 환경에서도 과필터링 가능 | **MED** | threshold 튜닝으로 완화 가능 |
 | MC-Dropout | M=20 필요 (M=5로는 불확실성 부정확) | **LOW** | 설계 한계 |
 | Flow-MPPI bootstrap | 50 warmup + 50 epoch 없이 Vanilla 동등 | **LOW** | Cold start 문제 |
 
@@ -3248,8 +3250,9 @@ Uncertainty-Aware MPPI와의 결합:
 | 데이터 부족 + 적응 | ALPaCA 또는 MAML | 소수 데이터 적응 |
 | 실시간 + 학습 불가 | EKF 또는 L1 | 학습 데이터 불필요, 즉시 적응 |
 | Sim-to-Real | MAML 또는 LoRA | 메타 학습된 초기값 + 빠른 적응 |
-| 다중 모달 + 장애물 | Flow-MPPI | CFM으로 분포 학습. Bootstrap 비용 감수 |
-| 단순 경로 추종 | **Vanilla MPPI** | 추가 복잡도 불필요, 가장 안정적 |
+| 다중 모달 + 장애물 | Flow-MPPI | Obstacle RMSE 1.093 (최저). CFM 다중 모달 샘플링 |
+| 노이즈 환경 | BNN-MPPI | Noisy RMSE 1.032 (최저). Feasibility 비용이 강건 |
+| 단순 경로 추종 | **Vanilla MPPI** 또는 DIAL | Vanilla: 안정적 기준선. DIAL: Simple 0.996 (최저) |
 | 물리 모델 존재 | ResidualDynamics | 잔차만 학습, 효율적 |
 | 메모리 제한 | LoRA 또는 MCDropout | 소수 파라미터 |
 
