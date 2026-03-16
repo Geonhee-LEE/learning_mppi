@@ -3194,17 +3194,62 @@ Uncertainty-Aware MPPI와의 결합:
 └──────────────┴───────┴────────┴────────┴────────┴────────┘
 ```
 
+### 실측 벤치마크 기반 비판적 평가
+
+> 아래 수치는 프로젝트 벤치마크 스크립트(`examples/comparison/`)에서 직접 측정한 결과이다.
+> 합성 비선형 동역학 데이터(N=800, nx=3, nu=2)로 학습, 3 시나리오 평가.
+
+#### 불확실성 모델 순위 (학습 모델)
+
+| 순위 | 모델 | Clean RMSE | Noisy RMSE | OOD RMSE | 추론 속도 | 근거 |
+|:---:|------|:---:|:---:|:---:|:---:|------|
+| **1** | **Ensemble (M=5)** | **0.084** | **0.132** | **0.369** | 0.13ms | 전 시나리오 최고 정확도. OOD 불확실성 신호도 가장 강함 (std=0.57) |
+| **2** | EDL (1-pass) | 0.149 | 0.238 | 0.671 | **0.05ms** | 추론 2.6배 빠르지만 RMSE 1.5-1.8배 열위. **OOD evidence collapse**: OOD std=0.017로 불확실성 신호 거의 소멸 |
+| **3** | MC-Dropout (M=20) | 0.168 | 0.228 | 0.700 | 0.48ms | 가장 느리고 RMSE도 중간. 불확실성 추정은 과대 (std=1.44 OOD). dropout_rate 민감 |
+
+**핵심 관찰**:
+1. **Ensemble이 압도적 우위** — RMSE, OOD 탐지, 안정성 모두 1위. M배 계산 비용이 유일한 단점이지만, M=5에서 0.13ms면 실시간 제약 없음
+2. **EDL의 한계는 OOD** — Clean/Noisy에서는 합리적이나, OOD에서 epistemic std=0.017 (Ensemble의 0.57 대비 3%)로 위험 탐지 불가. 안전-critical 시스템에 부적합
+3. **MC-Dropout은 비효율적** — Ensemble 대비 4배 느리면서 정확도 열위. 장점은 단일 모델이라는 점뿐
+
+#### MPPI 변형 순위 (컨트롤러)
+
+| 순위 | 컨트롤러 | Simple RMSE | Obstacle RMSE | 속도 | 근거 |
+|:---:|---------|:---:|:---:|:---:|------|
+| **1** | **Vanilla MPPI** | 0.018 | 0.036 | 1.1ms | 단순하고 빠르고 안정적. 대부분 시나리오에서 충분 |
+| **2** | Flow-MPPI | 0.546 (10s) | **0.779 (10s)** | 3.4ms | 장애물 환경에서 최우수. 단, bootstrap 필수 + 계산 비용 3배 |
+| **3** | DIAL-MPPI | **0.507 (10s)** | 0.920 (10s) | 7.9ms | Simple에서 최우수이지만, **장애물에서 reward_norm 문제 발생**. 파라미터 민감도 높음 |
+| **4** | Uncertainty-MPPI | 0.020 | 0.071 | 1.2ms | 소폭 개선 but 불확실성 모델 의존. 학습 모델 없으면 무의미 |
+| **5** | BNN-MPPI | 0.045 | 0.081 | 1.5ms | Vanilla 대비 오히려 RMSE 악화 (Clean 0.018→0.045). 보수적 필터링이 과도 |
+
+**핵심 관찰**:
+1. **Vanilla MPPI가 놀라울 정도로 강력** — Clean 시나리오에서 0.018m으로 모든 변형보다 우수. 복잡한 변형이 반드시 개선을 보장하지 않음
+2. **DIAL-MPPI의 reward normalization은 결함** — `use_reward_normalization=True` (기본값)에서 높은 장애물 비용이 정규화로 상쇄되어 ESS→uniform, 회피 실패. **반드시 False로 설정 필요**
+3. **BNN-MPPI는 과보수적** — feasibility 필터링이 좋은 궤적도 제거. Clean에서 Vanilla의 2.5배 RMSE
+4. **Flow-MPPI는 장애물 전용** — Bootstrap 비용 대비 simple에서는 Vanilla보다 열위. 다중 모달 경로가 필요한 환경에서만 가치
+
+#### 알려진 결함
+
+| 구성요소 | 결함 | 심각도 | 상태 |
+|---------|------|:---:|------|
+| DIAL-MPPI `reward_normalization` | 높은 비용에서 가중치 uniform화 → 회피 실패 | **HIGH** | 벤치마크에서 False로 우회 |
+| EDL OOD evidence collapse | 극단적 OOD에서 epistemic→0 (안전 위협) | **HIGH** | 구조적 한계, 해결 어려움 |
+| BNN-MPPI feasibility filter | Clean 환경에서도 과필터링 → RMSE 악화 | **MED** | threshold 튜닝으로 완화 가능 |
+| MC-Dropout | M=20 필요 (M=5로는 불확실성 부정확) | **LOW** | 설계 한계 |
+| Flow-MPPI bootstrap | 50 warmup + 50 epoch 없이 Vanilla 동등 | **LOW** | Cold start 문제 |
+
 ### 시나리오별 추천
 
 | 시나리오 | 추천 모델 | 이유 |
 |---------|----------|------|
-| 데이터 풍부 + 불확실성 | Ensemble 또는 GP | 정확한 불확실성 추정 |
-| 실시간 불확실성 | EDL | 1회 패스, aleatoric/epistemic 분해 |
+| 데이터 풍부 + 불확실성 | **Ensemble** | 전 시나리오 최고 정확도, OOD 탐지 최강 |
+| 실시간 불확실성 (비안전) | EDL | 1회 패스, 속도 우선. 단 OOD 탐지에 의존하지 말 것 |
+| 안전-critical 불확실성 | Ensemble + CP | EDL은 OOD collapse로 부적합 |
 | 데이터 부족 + 적응 | ALPaCA 또는 MAML | 소수 데이터 적응 |
 | 실시간 + 학습 불가 | EKF 또는 L1 | 학습 데이터 불필요, 즉시 적응 |
 | Sim-to-Real | MAML 또는 LoRA | 메타 학습된 초기값 + 빠른 적응 |
-| 다중 모달 제어 | Flow Matching | CFM으로 분포 학습 |
-| MPPI 대체 | NN-Policy | BC+BPTT로 직접 제어 |
+| 다중 모달 + 장애물 | Flow-MPPI | CFM으로 분포 학습. Bootstrap 비용 감수 |
+| 단순 경로 추종 | **Vanilla MPPI** | 추가 복잡도 불필요, 가장 안정적 |
 | 물리 모델 존재 | ResidualDynamics | 잔차만 학습, 효율적 |
 | 메모리 제한 | LoRA 또는 MCDropout | 소수 파라미터 |
 

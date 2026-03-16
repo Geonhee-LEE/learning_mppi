@@ -1180,16 +1180,49 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 
 ---
 
+## Critical Evaluation (Benchmark-Based)
+
+> Measured from project benchmarks (`examples/comparison/`). Not theoretical claims.
+
+### Learning Model Ranking (Uncertainty Estimation)
+
+| Rank | Model | Clean RMSE | OOD RMSE | Speed | Verdict |
+|:---:|-------|:---:|:---:|:---:|---------|
+| **1** | **Ensemble (M=5)** | **0.084** | **0.369** | 0.13ms | Best accuracy + OOD detection. Gold standard. |
+| 2 | EDL (1-pass) | 0.149 | 0.671 | **0.05ms** | 2.6x faster but 1.8x worse RMSE. **OOD evidence collapse** (std=0.017 vs Ensemble's 0.57) |
+| 3 | MC-Dropout (M=20) | 0.168 | 0.700 | 0.48ms | Slowest, worst accuracy. Overestimates uncertainty. |
+
+### MPPI Controller Ranking (Trajectory Tracking)
+
+| Rank | Controller | Clean RMSE | Obstacles RMSE | Speed | Verdict |
+|:---:|-----------|:---:|:---:|:---:|---------|
+| **1** | **Vanilla MPPI** | **0.018m** | 0.036m | **1.1ms** | Surprisingly strong. Simplest = most robust. |
+| 2 | Flow-MPPI | 0.546m* | **0.779m*** | 3.4ms | Best for obstacles, but requires bootstrap warmup. |
+| 3 | DIAL-MPPI | 0.507m* | 0.920m* | 7.9ms | `reward_normalization` bug degrades obstacle avoidance. |
+| 4 | BNN-MPPI | 0.045m | 0.081m | 1.5ms | Over-conservative filtering hurts clean performance. |
+
+*Flow/DIAL benchmarked on 10s longer duration with larger radius — not directly comparable to Vanilla/BNN 5s runs.
+
+### Known Defects
+
+| Component | Issue | Severity |
+|-----------|-------|:--------:|
+| DIAL `reward_normalization=True` | High costs → uniform weights → avoidance failure | **HIGH** |
+| EDL OOD evidence collapse | epistemic→0 on extrapolation (safety risk) | **HIGH** |
+| BNN-MPPI feasibility filter | Over-filtering in clean environments (2.5x RMSE) | MED |
+
 ## Use Case Recommendations
 
 | Scenario | Recommended Variant | Reason |
 |----------|-------------------|--------|
+| **Simple tracking (start here)** | **Vanilla MPPI** | **0.018m RMSE, 1.1ms. Often sufficient.** |
 | Real-time control | Vanilla, Tube, Log | ~5ms ultra-fast |
 | Large-scale sampling | Vanilla + GPU | K=8192 at ~4ms |
 | Disturbance-prone | Tube-MPPI | Nominal + feedback robustness |
 | High-precision tracking | SVG-MPPI | 0.005m best accuracy |
 | Path following (curves) | MPCC | 130x better than tracking cost |
 | **Best safety + tracking** | **Adaptive Shield-MPPI** | **100% safe, 0.38m RMSE (best among safe)** |
+| Multi-modal obstacles | Flow-MPPI | CFM multi-modal sampling (requires bootstrap) |
 | Static obstacle avoidance | CBF/Shield-MPPI | CBF safety guarantee |
 | Dynamic obstacles | C3BF / DPCBF | Velocity-aware avoidance |
 | Dense environments | Optimal-Decay | Constraint relaxation for feasibility |
@@ -1204,7 +1237,8 @@ ros2 launch learning_mppi mppi_sim.launch.py model_type:=dynamic
 | Sim-to-real adaptation | Online Learning | Real-time model adaptation |
 | Time-varying disturbance | MAML-5D | Few-shot online adaptation |
 | Adaptive + safe control | EKF/L1 + Shield | Real-time adaptation + safety |
-| Real-time uncertainty | EDL | Single-pass aleatoric/epistemic separation, O(1) inference |
+| **Uncertainty (accuracy)** | **Ensemble (M=5)** | **Best RMSE + OOD detection. Use for safety-critical.** |
+| Uncertainty (speed) | EDL | 1-pass O(1). NOT for safety-critical (OOD collapse). |
 
 ---
 
