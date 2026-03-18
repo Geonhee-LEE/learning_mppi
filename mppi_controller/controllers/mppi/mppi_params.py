@@ -883,3 +883,53 @@ class RobustMPPIParams(MPPIParams):
             f"Unknown disturbance_mode: {self.disturbance_mode}"
         assert self.n_disturbance_samples >= 1, \
             "n_disturbance_samples must be >= 1"
+
+
+@dataclass
+class ASRMPPIParams(MPPIParams):
+    """
+    ASR-MPPI (Adaptive Spectral Risk MPPI) 전용 추가 파라미터
+
+    Spectral Risk Measure (SRM)를 MPPI 가중치에 적용.
+    왜곡 함수 φ(q)로 비용 분위수를 비균일 가중하여
+    CVaR의 이진 절단을 연속적 곡선으로 일반화.
+
+    SRM_φ(S) = ∫₀¹ VaR_q(S) · φ'(q) dq
+    가중치: w_k ∝ φ'(q_k) · exp(-S_{(k)} / λ)
+
+    Attributes:
+        distortion_type: 왜곡 함수 종류 ("sigmoid"|"power"|"dual_power"|"cvar")
+        distortion_alpha: 중심 파라미터 (sigmoid 전환점, CVaR cutoff)
+        distortion_beta: 경사도 (sigmoid sharpness, β→∞ → CVaR)
+        distortion_gamma: 지수 (power: q^γ, dual_power: 1-(1-q)^γ)
+        use_adaptive_risk: 비용 분포 기반 자동 α/β 조절
+        adaptation_rate: 적응 속도 (EMA)
+        adaptation_window: 적응 히스토리 윈도우
+        min_ess_ratio: ESS 하한 (ESS/K < min_ess_ratio → β 감소)
+    """
+
+    distortion_type: str = "sigmoid"
+    distortion_alpha: float = 0.5
+    distortion_beta: float = 5.0
+    distortion_gamma: float = 1.0
+    use_adaptive_risk: bool = False
+    adaptation_rate: float = 0.1
+    adaptation_window: int = 50
+    min_ess_ratio: float = 0.1
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.distortion_type in {"sigmoid", "power", "dual_power", "cvar"}, \
+            f"Unknown distortion_type: {self.distortion_type}"
+        assert 0 < self.distortion_alpha < 1, \
+            "distortion_alpha must be in (0, 1)"
+        assert self.distortion_beta > 0, \
+            "distortion_beta must be positive"
+        assert self.distortion_gamma > 0, \
+            "distortion_gamma must be positive"
+        assert 0 < self.adaptation_rate <= 1, \
+            "adaptation_rate must be in (0, 1]"
+        assert self.adaptation_window >= 1, \
+            "adaptation_window must be >= 1"
+        assert 0 < self.min_ess_ratio <= 1, \
+            "min_ess_ratio must be in (0, 1]"

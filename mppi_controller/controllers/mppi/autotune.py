@@ -8,7 +8,7 @@ MPPI Autotune 모듈
     - AutotuneConfig: 튜닝 설정 (탐색 범위, 옵티마이저 등)
     - MPPIAutotuner: scipy 기반 오프라인 파라미터 최적화
     - OnlineSigmaAdapter: ESS/cost-gap 기반 온라인 σ 적응 (CoVO-MPC 영감)
-    - AutotunedMPPIController: 온라인 적응 래퍼 (15종 MPPI 변형 호환)
+    - AutotunedMPPIController: 온라인 적응 래퍼 (21종 MPPI 변형 호환)
 
 참고:
     - CoVO-MPC (L4DC 2024): Covariance-optimal control for MPPI
@@ -553,7 +553,7 @@ class OnlineSigmaAdapter(NoiseSampler):
 
 class AutotunedMPPIController:
     """
-    온라인 적응 래퍼 — 15종 모든 MPPI 변형과 호환
+    온라인 적응 래퍼 — 21종 모든 MPPI 변형과 호환
 
     Wrapper 패턴으로 기존 컨트롤러를 감싸서 온라인 적응 기능 추가.
     sigma_adapter와 temperature_adapter를 개별 ON/OFF 가능.

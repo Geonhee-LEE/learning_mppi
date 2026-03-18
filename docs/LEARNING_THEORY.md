@@ -1,6 +1,6 @@
 # 학습 기반 동역학 심층 이론 가이드
 
-> **대상 독자**: 13종 학습 모델과 고급 학습 기법의 수학적 기초를 이해하고자 하는 대학원생 및 연구자
+> **대상 독자**: 14종 학습 모델과 고급 학습 기법의 수학적 기초를 이해하고자 하는 대학원생 및 연구자
 >
 > **구현 참조**: `mppi_controller/models/learned/`, `mppi_controller/learning/`, `mppi_controller/models/differentiable/`
 
@@ -25,7 +25,8 @@
 15. [NN-Policy (행동 복제 + BPTT)](#15-nn-policy-행동-복제--bptt)
 16. [Flow Matching 이론 (CFM)](#16-flow-matching-이론-cfm)
 17. [Evidential Deep Learning (EDL)](#17-evidential-deep-learning-edl)
-18. [학습 모델 선택 가이드](#18-학습-모델-선택-가이드)
+18. [World Model VAE](#18-world-model-vae)
+19. [학습 모델 선택 가이드](#19-학습-모델-선택-가이드)
 
 ---
 
@@ -3131,7 +3132,50 @@ Uncertainty-Aware MPPI와의 결합:
 
 ---
 
-## 18. 학습 모델 선택 가이드
+## 18. World Model VAE
+
+### 18.1 직관
+
+VAE(Variational Autoencoder)로 상태 공간을 저차원 잠재 공간에 매핑하고,
+잠재 공간에서 동역학을 학습. MPPI 롤아웃을 잠재 공간에서 수행하여 계획 가속.
+
+### 18.2 학습 구조
+
+$$L = \underbrace{\|x - \text{Dec}(\text{Enc}(x))\|^2}_{L_{\text{recon}}} + \beta \underbrace{D_{KL}(q(z|x) \| \mathcal{N}(0,I))}_{L_{KL}} + \alpha_{\text{dyn}} \underbrace{\|f_\theta(z_t, u_t) - \mu_\phi(x_{t+1})_{\text{detach}}\|^2}_{L_{\text{dynamics}}}$$
+
+3가지 손실의 역할:
+1. **재구성 손실**: 인코더-디코더 충실도 보장
+2. **KL 발산**: 잠재 공간 정규화 (구조적 매니폴드)
+3. **동역학 손실**: 잠재 전이 정확도 (타겟은 detached)
+
+### 18.3 Beta Annealing
+
+$\beta_{eff} = \beta \cdot \min\left(\frac{\text{epoch}}{T_{\text{anneal}}}, 1\right)$
+
+초기에 $\beta=0$으로 시작하여 재구성을 먼저 학습 → 점진적으로 KL 도입.
+KL collapse (모든 $z \approx 0$) 방지.
+
+### 18.4 수치 안정성
+
+- `log_var` clamp: $[-20, 2]$ → `exp(log_var)` 오버플로 방지
+- Gradient clipping: `clip_grad_norm_(max_norm=1.0)`
+- Reparameterization: 학습 시만 샘플링, 추론 시 $\mu$ 반환
+
+### 18.5 코드 연결
+
+- **VAE 모델**: `learning/world_model_trainer.py:WorldModelVAE`
+  - 3개 서브네트워크: Encoder, Latent Dynamics, Decoder
+- **학습**: `learning/world_model_trainer.py:WorldModelTrainer`
+  - `train()`: states, controls, next_states → 3-loss 학습
+  - `predict()`: encode → latent_step → decode
+  - `encode()`/`decode()`: 잠재 공간 변환
+- **동역학 래퍼**: `models/learned/world_model_dynamics.py:WorldModelDynamics`
+  - `step()`: RK4 대신 VAE 잠재 전파
+  - `encode()`/`decode()`/`latent_dynamics()`: 직접 접근
+
+---
+
+## 19. 학습 모델 선택 가이드
 
 ### 의사결정 트리
 

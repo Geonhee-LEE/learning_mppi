@@ -2,16 +2,16 @@
 
 ## Overview
 
-learning_mppi는 1100+개의 단위 테스트를 통해 모든 MPPI 변형, 안전 제어, 로봇 모델, 학습 모델의 정확성을 검증합니다.
+learning_mppi는 1350+개의 단위 테스트를 통해 모든 MPPI 변형, 안전 제어, 로봇 모델, 학습 모델의 정확성을 검증합니다.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  Test Summary (2026-03-14)                       │
+│  Test Summary (2026-03-19)                       │
 ├──────────────────────────────────────────────────┤
-│  Total:      1101 tests                          │
-│  Files:      72 test files                       │
+│  Total:      1351 tests                          │
+│  Files:      83 test files                       │
 │  Status:     ALL PASSED                          │
-│  Duration:   ~12 seconds                         │
+│  Duration:   ~26 seconds                         │
 │  Python:     3.12.12                             │
 │  Framework:  pytest 9.0.2                        │
 │  Failures:   0                                   │
@@ -206,9 +206,9 @@ python -m pytest tests/test_6dof_learned_benchmark.py -v --override-ini="addopts
 | `test_dynamic_obstacles.py` | 7 | 동적 장애물 회피 시나리오 |
 | `test_gpu_mppi.py` | 7 | GPU 가속 (CUDA 미설치 시 CPU fallback) |
 
-### 11. New MPPI Variants (4 files, ~100 tests)
+### 11. New MPPI Variants (13 files, ~340 tests)
 
-Flow-MPPI, Diffusion-MPPI, WBC-MPPI, SE3 비용 함수를 검증합니다.
+Flow-MPPI, Diffusion-MPPI, WBC-MPPI, BNN-MPPI, Latent-MPPI, CMA-MPPI, DBaS-MPPI, Robust-MPPI, ASR-MPPI, SE3 비용 함수 등을 검증합니다.
 
 | Test File | Tests | 검증 항목 |
 |-----------|-------|----------|
@@ -216,6 +216,15 @@ Flow-MPPI, Diffusion-MPPI, WBC-MPPI, SE3 비용 함수를 검증합니다.
 | `test_diffusion_mppi.py` | ~20 | Diffusion-MPPI + DDPM/DDIM |
 | `test_wbc_mppi.py` | ~30 | WBC-MPPI + WBC 노이즈 |
 | `test_se3_cost.py` | ~20 | SE3/Manipulation 비용 함수 |
+| `test_bnn_mppi.py` | 28 | BNN-MPPI: feasibility 비용 + 궤적 필터링 |
+| `test_latent_mppi.py` | 28 | Latent-MPPI: VAE 잠재 공간 롤아웃 |
+| `test_cma_mppi.py` | 25 | CMA-MPPI: 공분산 적응 |
+| `test_dbas_mppi.py` | 28 | DBaS-MPPI: barrier state + 적응적 탐색 |
+| `test_robust_mppi.py` | 28 | Robust-MPPI: 피드백 통합 + 외란 모델링 |
+| `test_spectral_risk_mppi.py` | 28 | ASR-MPPI: SRM 왜곡 함수 + ESS 적응 |
+| `test_autotune.py` | ~30 | Autotune: CMA-ES 탐색 + 온라인 적응 |
+| `test_torch_mppi.py` | ~9 | Pure PyTorch MPPI |
+| `test_dial_mppi.py` | ~16 | DIAL-MPPI: 확산 어닐링 |
 
 ### 12. Simulation Infrastructure (6 files, 69 tests)
 
@@ -285,6 +294,13 @@ tests/
 ├── test_6dof_learned_benchmark.py  # 6-DOF 학습 모델 8-Way 벤치마크
 ├── test_lotf.py                   # LotF: LoRA/Spectral/DiffSim/BPTT/NN-Policy
 ├── test_dynamic_obstacles.py      # 동적 장애물
+├── test_bnn_mppi.py              # BNN-MPPI feasibility 비용
+├── test_latent_mppi.py           # Latent-MPPI VAE 잠재 공간
+├── test_cma_mppi.py              # CMA-MPPI 공분산 적응
+├── test_dbas_mppi.py             # DBaS-MPPI barrier state
+├── test_robust_mppi.py           # Robust-MPPI 피드백 통합
+├── test_spectral_risk_mppi.py    # ASR-MPPI SRM 왜곡
+├── test_autotune.py              # Autotune CMA-ES
 ├── test_gpu_mppi.py               # GPU 가속
 ├── test_follow_path_integration.py    # Nav2 FollowPath
 ├── test_costmap_converter.py      # Nav2 Costmap 변환
@@ -297,7 +313,7 @@ tests/
 
 1. **명명 규칙**: `test_<module>.py` 파일, `test_<function>` 함수
 2. **외부 의존성 없음**: ROS2, GPU, 외부 서비스 없이 실행 가능
-3. **빠른 실행**: 전체 1100+개 테스트 ~12초 완료
+3. **빠른 실행**: 전체 1350+개 테스트 ~26초 완료
 4. **pytest 설정**: `pyproject.toml`의 `[tool.pytest.ini_options]` 참조
 
 ### pyproject.toml 설정

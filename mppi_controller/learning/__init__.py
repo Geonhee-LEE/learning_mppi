@@ -14,6 +14,10 @@ from mppi_controller.learning.evidential_trainer import (
     EvidentialTrainer,
     EvidentialLoss,
 )
+from mppi_controller.learning.world_model_trainer import (
+    WorldModelVAE,
+    WorldModelTrainer,
+)
 
 __all__ = [
     "ConformalPredictor",
@@ -26,4 +30,6 @@ __all__ = [
     "EvidentialMLPModel",
     "EvidentialTrainer",
     "EvidentialLoss",
+    "WorldModelVAE",
+    "WorldModelTrainer",
 ]

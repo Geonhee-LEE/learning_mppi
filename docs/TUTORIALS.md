@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-20종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
+21종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [환경 설정](#1-환경-설정)
 2. [기본 MPPI 제어 (기구학)](#2-기본-mppi-제어-기구학)
 3. [동역학 모델 제어](#3-동역학-모델-제어)
-4. [MPPI 변형 20종 벤치마크](#4-mppi-변형-20종-벤치마크)
+4. [MPPI 변형 21종 벤치마크](#4-mppi-변형-21종-벤치마크)
 5. [안전 제어 (CBF / Shield / Adaptive)](#5-안전-제어-cbf--shield--adaptive)
 6. [모델 학습 (NN / GP / Residual / Ensemble)](#6-모델-학습-nn--gp--residual--ensemble)
 7. [메타 학습 및 온라인 적응](#7-메타-학습-및-온라인-적응-maml--lora--ekf--l1--alpaca)
@@ -64,7 +64,7 @@ PYTHONPATH=. python examples/kinematic/mppi_differential_drive_kinematic_demo.py
 ### 테스트 실행
 
 ```bash
-# 전체 테스트 (1267+개, ~26초)
+# 전체 테스트 (1351+개, ~26초)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # 특정 카테고리
@@ -187,9 +187,9 @@ PYTHONPATH=. python examples/comparison/kinematic_vs_dynamic_demo.py --no-plot
 
 ---
 
-## 4. MPPI 변형 20종 벤치마크
+## 4. MPPI 변형 21종 벤치마크
 
-19가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
+20가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
 각 변형은 특정 문제(분포 왜곡, 위험 회피, 샘플 다양성 등)를
 해결하기 위해 설계되었습니다.
 
@@ -227,6 +227,12 @@ PYTHONPATH=. python examples/mppi_all_variants_benchmark.py --no-plot
 | 13 | **Flow** | CFM 속도장 학습 → 다중 모달 샘플링 | 학습된 분포 사전 정보 |
 | 14 | **Diffusion** | DDPM/DDIM 역확산 → 제어 시퀀스 생성 | 고품질 다중 모달 샘플 |
 | 15 | **WBC** | 모바일 매니퓰레이터 통합 (베이스+팔) | 전신 제어 |
+| 16 | **BNN** | 앙상블 불확실성 → feasibility 비용 + 필터링 | 보수적 안전 제어 |
+| 17 | **Latent** | VAE 잠재 공간 롤아웃 + 배치 디코딩 | 저차원 계획 가속 |
+| 18 | **CMA** | Per-timestep 대각 공분산 적응 | 적응적 탐색 분포 |
+| 19 | **DBaS** | Barrier state 증강 + 적응적 탐색 노이즈 | 밀집 장애물 + 좁은 통로 |
+| 20 | **Robust** | 피드백 게인 + 외란 모델링 | 외란 강건성 |
+| 21 | **ASR** | Spectral Risk Measure + 적응적 왜곡 함수 | 부드러운 위험 가중 |
 
 ### 변형별 고유 파라미터
 
@@ -252,7 +258,7 @@ UncertaintyMPPIParams(K=1024, N=30, strategy="two_pass")
 
 ### 기대 결과
 
-- 20종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
+- 21종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
 - 궤적 비교 플롯 (각 변형의 추적 경로 오버레이)
 - Vanilla 대비 각 변형의 상대 성능 비율
 
@@ -866,6 +872,39 @@ PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --no-plot
 | `robust_alpha` | adversarial 외란 크기 | 0.1 |
 | `use_feedback` | 피드백 통합 활성화 | True |
 | `n_disturbance_samples` | 외란 샘플 수 | 1 |
+
+### 9.11 ASR-MPPI (Adaptive Spectral Risk) 벤치마크
+
+Spectral Risk Measure (SRM)의 왜곡 함수 φ(q)로 비용 분위수를 비균일 가중하여,
+CVaR의 경질 절단을 연속적 곡선으로 일반화합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py
+
+# 장애물 시나리오 (부드러운 가중치 우위)
+PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py --scenario obstacles
+
+# 밀집 장애물 (SRM 표현력)
+PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py --scenario dense_slalom
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py --live --scenario obstacles
+```
+
+**ASR-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `distortion_type` | 왜곡 함수 (`"sigmoid"` \| `"power"` \| `"dual_power"` \| `"cvar"`) | `"sigmoid"` |
+| `distortion_alpha` | 중심 파라미터 (sigmoid 전환점) | 0.5 |
+| `distortion_beta` | 경사도 (sigmoid sharpness) | 5.0 |
+| `distortion_gamma` | 지수 (power: q^γ) | 1.0 |
+| `use_adaptive_risk` | ESS 기반 자동 β 조절 | False |
+| `adaptation_rate` | 적응 속도 (EMA) | 0.1 |
 
 ---
 

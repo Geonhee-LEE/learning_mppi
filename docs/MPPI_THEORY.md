@@ -1,6 +1,6 @@
 # MPPI 심층 이론 가이드
 
-> **대상 독자**: MPPI 알고리즘의 수학적 기초와 20개 변형을 깊이 이해하고자 하는 대학원생 및 연구자
+> **대상 독자**: MPPI 알고리즘의 수학적 기초와 21개 변형을 깊이 이해하고자 하는 대학원생 및 연구자
 >
 > **구현 참조**: 모든 수식은 `mppi_controller/controllers/mppi/` 내 실제 코드와 1:1 대응
 
@@ -27,7 +27,8 @@
 17. [CMA-MPPI (Covariance Matrix Adaptation)](#17-cma-mppi-covariance-matrix-adaptation)
 18. [DBaS-MPPI (Discrete Barrier States)](#18-dbas-mppi-discrete-barrier-states)
 19. [R-MPPI (Robust MPPI)](#19-r-mppi-robust-mppi)
-20. [변형 선택 가이드](#20-변형-선택-가이드)
+20. [ASR-MPPI (Adaptive Spectral Risk)](#20-asr-mppi-adaptive-spectral-risk)
+21. [변형 선택 가이드](#21-변형-선택-가이드)
 
 ---
 
@@ -3535,7 +3536,74 @@ Return: optimal_control, info
 
 ---
 
-## 20. 변형 선택 가이드
+## 20. ASR-MPPI (Adaptive Spectral Risk)
+
+> **핵심**: Spectral Risk Measure (SRM)의 왜곡 함수 φ(q)로 비용 분위수를
+> 비균일 가중하여, CVaR의 경질 절단을 연속적 곡선으로 일반화.
+
+### 20.1 Spectral Risk Measure
+
+**정의**: 왜곡 함수 φ: [0,1] → [0,1] (φ(0)=0, φ(1)=1, 단조 증가)에 대해:
+
+$$
+\text{SRM}_\phi(S) = \int_0^1 \text{VaR}_q(S) \cdot \phi'(q) \, dq
+$$
+
+여기서 VaR_q(S)는 비용 S의 q-분위수, φ'(q)는 왜곡 밀도(density).
+
+**MPPI 가중치 적용**: 비용 S_{(1)} ≤ ... ≤ S_{(K)} (정렬), q_k = k/K:
+
+$$
+w_k \propto \phi'(q_k) \cdot \exp\left(-\frac{S_{(k)}}{\lambda}\right)
+$$
+
+### 20.2 왜곡 함수 4종
+
+| 함수 | φ(q) | φ'(q) | 특성 |
+|------|-------|--------|------|
+| **Sigmoid** | σ(β(q-α))† | β·σ·(1-σ)/Z | 부드러운 S-곡선, 가장 유연 |
+| **Power** | q^γ | γ·q^(γ-1) | γ<1: 낮은 비용 강조, γ>1: 높은 비용 |
+| **Dual Power** | 1-(1-q)^γ | γ·(1-q)^(γ-1) | Power의 반대 꼬리 |
+| **CVaR** | 0 (q<1-α), (q-(1-α))/α | 0 or 1/α | 기존 Risk-Aware 호환 (계단) |
+
+†정규화: (φ(q)-φ(0))/(φ(1)-φ(0))로 φ(0)=0, φ(1)=1 보장.
+
+### 20.3 CVaR/Tsallis는 SRM의 특수 경우
+
+- **CVaR_α**: φ(q) = max(0, (q-(1-α))/α) → 계단 왜곡 → SRM = CVaR
+- **Sigmoid β→∞**: σ(β(q-α)) → Heaviside → CVaR 수렴
+- **Tsallis q-exponential**: q-지수 가중도 특정 왜곡 함수로 표현 가능
+
+### 20.4 ESS 기반 적응 알고리즘
+
+```
+매 제어 스텝마다:
+  1. ESS = 1/Σw_k², ess_ratio = ESS/K
+  2. if ess_ratio < min_ess_ratio:
+       β_target = β · 0.8        (더 균일한 가중)
+     elif ess_ratio > 0.5:
+       β_target = β · 1.05       (더 집중)
+     else:
+       β_target = β
+  3. β ← (1 - rate)·β + rate·β_target    (EMA 업데이트)
+  4. β = clip(β, 0.5, 50.0)
+```
+
+### 20.5 코드 매핑
+
+- **파라미터**: `mppi_params.py:ASRMPPIParams`
+  - `distortion_type`: sigmoid | power | dual_power | cvar
+  - `distortion_alpha/beta/gamma`: 왜곡 함수 파라미터
+  - `use_adaptive_risk`: ESS 기반 자동 조절
+- **컨트롤러**: `spectral_risk_mppi.py:ASRMPPIController`
+  - `_compute_weights()`: 정렬 → φ'(q) → spectral_weights → 정규화
+  - `_eval_distortion()` / `_eval_distortion_derivative()`: 왜곡 함수 계산
+  - `_adapt_parameters()`: ESS 기반 β 적응
+  - `get_risk_statistics()`: SRM 값, ESS, α/β 추적
+
+---
+
+## 21. 변형 선택 가이드
 
 ### 의사결정 트리
 
