@@ -1,6 +1,6 @@
 # MPPI 심층 이론 가이드
 
-> **대상 독자**: MPPI 알고리즘의 수학적 기초와 15개 변형을 깊이 이해하고자 하는 대학원생 및 연구자
+> **대상 독자**: MPPI 알고리즘의 수학적 기초와 19개 변형을 깊이 이해하고자 하는 대학원생 및 연구자
 >
 > **구현 참조**: 모든 수식은 `mppi_controller/controllers/mppi/` 내 실제 코드와 1:1 대응
 
@@ -23,7 +23,10 @@
 13. [C2U-MPPI (Chance-Constrained Unscented)](#13-c2u-mppi-chance-constrained-unscented)
 14. [Flow-MPPI (Conditional Flow Matching)](#14-flow-mppi-conditional-flow-matching)
 15. [BNN-MPPI (Bayesian Neural Network Surrogate)](#15-bnn-mppi-bayesian-neural-network-surrogate)
-16. [변형 선택 가이드](#16-변형-선택-가이드)
+16. [Latent-Space MPPI (World Model VAE)](#16-latent-space-mppi-world-model-vae)
+17. [CMA-MPPI (Covariance Matrix Adaptation)](#17-cma-mppi-covariance-matrix-adaptation)
+18. [DBaS-MPPI (Discrete Barrier States)](#18-dbas-mppi-discrete-barrier-states)
+19. [변형 선택 가이드](#19-변형-선택-가이드)
 
 ---
 
@@ -3126,7 +3129,282 @@ mppi_params.py:
 
 ---
 
-## 16. 변형 선택 가이드
+## 16. Latent-Space MPPI (World Model VAE)
+
+### 16.1 직관
+
+물리 상태 공간에서 K×N 롤아웃은 비선형 동역학 호출이 병목. **잠재 공간(latent space)**에서 롤아웃하면:
+1. 저차원(nx → latent_dim)에서 단순 행렬 연산 → 빠름
+2. VAE가 학습한 매니폴드 위에서만 계획 → 비물리적 상태 자연 배제
+3. 디코딩 후 기존 비용 함수 재사용 → 새로운 비용 설계 불필요
+
+### 16.2 VAE 기초
+
+**ELBO (Evidence Lower Bound)**:
+
+$$\log p(x) \geq \mathbb{E}_{q(z|x)}[\log p(x|z)] - D_{KL}(q(z|x) \| p(z))$$
+
+- $q(z|x) = \mathcal{N}(\mu_\phi(x), \sigma^2_\phi(x))$: Encoder
+- $p(x|z)$: Decoder (재구성 확률)
+- $p(z) = \mathcal{N}(0, I)$: 사전 분포
+
+**Reparameterization trick**: $z = \mu + \sigma \odot \epsilon$, $\epsilon \sim \mathcal{N}(0, I)$
+
+### 16.3 World Model 구조
+
+3개 서브네트워크:
+
+```
+Encoder:        x_t → [MLP] → (μ, log σ²) → z_t
+Latent Dynamics: (z_t, u_t) → [MLP] → z_{t+1}
+Decoder:        z_t → [MLP] → x̂_t
+```
+
+**학습 손실**:
+
+$$L = \underbrace{\|x - \hat{x}\|^2}_{L_{recon}} + \beta \underbrace{D_{KL}(q(z|x) \| p(z))}_{L_{KL}} + \alpha_{dyn} \underbrace{\|f_\theta(z_t, u_t) - \mu_\phi(x_{t+1})\|^2}_{L_{dynamics}}$$
+
+- $\beta$ **annealing**: $\beta_{eff} = \beta \cdot \min(epoch / T_{anneal}, 1)$ → KL collapse 방지
+- $L_{dynamics}$ 타겟은 **detached**: $\mu_\phi(x_{t+1})$.detach() → 안정 학습
+
+### 16.4 Hybrid 알고리즘
+
+```
+Algorithm: Latent-Space MPPI
+Input: state x₀, reference r_{0:N}, nominal U
+─────────────────────────────────────
+1. z₀ = Encode(x₀)                    # (latent_dim,)
+2. Z₀ = tile(z₀, K)                   # (K, latent_dim)
+3. ε ~ N(0, σ²), u = U + ε            # (K, N, nu)
+4. for t = 0 to N-1:
+     Z_{t+1} = LatentDynamics(Z_t, u[:,t,:])   # (K, latent_dim)
+5. z_flat = stack(Z_0, ..., Z_N)       # (K×(N+1), latent_dim)
+6. x_flat = Decode(z_flat)             # (K×(N+1), nx)
+7. X = reshape(x_flat, K, N+1, nx)     # 물리 궤적 복원
+8. costs = cost_function(X, u, r)      # 기존 비용 함수 재사용!
+9. λ_eff = λ × IQR(costs) / 3         # 적응적 온도 스케일링
+10. w = softmax(-costs / λ_eff)
+11. U ← U + Σ w_k ε_k
+Return: U[0]
+```
+
+**핵심 설계 결정**:
+- **잔차 잠재 dynamics**: z_{t+1} = z_t + f(z_t, u_t). 항등 매핑이 기본값이므로 수축/발산 방지.
+- **적응적 온도 스케일링** (단계 9): VAE 디코딩 노이즈로 비용 분산이 물리 모델 대비 크므로,
+  IQR(사분위 범위) 기반으로 λ를 자동 조정. 이를 통해 ESS가 K의 20~40%에서 안정.
+- **주기적 re-encoding**: decode_interval 스텝마다 z→x→z 재인코딩으로 잠재 공간 drift 보정.
+
+### 16.5 관련 연구 비교
+
+| 방법 | 잠재 공간 | 비용 계산 | 계획 |
+|------|----------|----------|------|
+| **PlaNet** (Hafner 2019) | RSSM | 잠재 비용 학습 | CEM |
+| **Dreamer** (Hafner 2020) | RSSM | Actor-Critic | 정책 |
+| **E2C** (Watter 2015) | VAE | LQR | 선형 |
+| **Latent-MPPI (ours)** | VAE | **물리 디코딩 + 기존 비용** | MPPI |
+
+### 16.6 코드 연결
+
+- **VAE 모델**: `learning/world_model_trainer.py:WorldModelVAE`
+- **학습**: `learning/world_model_trainer.py:WorldModelTrainer`
+- **동역학 래퍼**: `models/learned/world_model_dynamics.py:WorldModelDynamics`
+  - `step()`: RK4 대신 encode→latent_step→decode
+  - `encode()`/`decode()`/`latent_dynamics()`: 잠재 공간 직접 접근
+- **컨트롤러**: `controllers/mppi/latent_mppi.py:LatentMPPIController`
+  - `compute_control()`: 잠재 롤아웃 + 배치 디코딩 + 기존 비용 평가
+
+**참고 논문**: Hafner et al. (2019) "Learning Latent Dynamics for Planning from Pixels"; Watter et al. (2015) "Embed to Control"
+
+---
+
+## 17. CMA-MPPI (Covariance Matrix Adaptation)
+
+### 17.1 동기: 등방적 감쇠의 한계
+
+DIAL-MPPI는 반복마다 기하급수적으로 노이즈를 감쇠하여 local minima를 회피한다:
+
+```
+σ^(i) = σ₀ · f^i,   f ∈ (0, 1)
+```
+
+그러나 이 감쇠는 **등방적(isotropic)**이다 — 모든 제어 차원과 타임스텝에 동일한 비율을 적용.
+비용 지형이 비대칭인 경우 (예: 장애물 근처에서 선속도는 민감하지만 각속도는 자유로움)
+등방적 감쇠는 비효율적이다.
+
+### 17.2 CMA-MPPI 알고리즘
+
+CMA-ES (Covariance Matrix Adaptation Evolution Strategy)에서 영감받아,
+**보상 가중 샘플로부터 per-timestep 대각 공분산**을 학습한다.
+
+**핵심 수식:**
+
+```
+1. 샘플링:     ε_k ~ N(0, diag(Σ_t)),   k=1,...,K,  t=0,...,N-1
+2. 평균 업데이트: U ← Σ_k w_k · U_k^sampled
+3. 공분산 적응: Σ̂_t = Σ_k w_k · (U_k - U)_t²        (가중 분산)
+4. EMA 안정화:  Σ_t ← (1-α)·Σ_t + α·Σ̂_t
+5. 클램핑:      Σ_t = clip(Σ_t, σ_min², σ_max²)
+```
+
+여기서 `w_k = softmax(-cost_k / λ)` 는 MPPI 가중치, `α ∈ (0, 1]` 는 EMA 학습률.
+
+### 17.3 CMA-ES vs CMA-MPPI 비교
+
+| 특성 | CMA-ES | CMA-MPPI |
+|------|--------|----------|
+| 목적 | Black-box 최적화 | 실시간 MPC |
+| 공분산 | 풀 공분산 (n×n) | Per-timestep 대각 (N×nu) |
+| 적응 | 진화 경로 (p_c, p_σ) | EMA 보상 가중 분산 |
+| warm start | 없음 | 이전 스텝 Σ 전달 |
+| 샘플 수 | ~4+3ln(n) | K=512+ (MPPI 샘플) |
+
+### 17.4 DIAL-MPPI vs CMA-MPPI
+
+| 특성 | DIAL-MPPI | CMA-MPPI |
+|------|-----------|----------|
+| 노이즈 스케줄 | 고정: σ₀·f^i | 적응: 가중 분산 |
+| 등방성 | 모든 차원 동일 감쇠 | 차원별 독립 적응 |
+| 호라이즌 의존 | factor^(N-1-t) | per-timestep Σ_t |
+| 하이퍼파라미터 | f, horizon_factor | α, σ_min, σ_max |
+| 장점 | 단순, 예측 가능 | 비용 지형 적응 |
+| 단점 | 비대칭 비용 비효율 | 노이즈 추정 불안정 가능 |
+
+### 17.5 코드 연결
+
+- **파라미터**: `mppi_params.py:CMAMPPIParams`
+  - `n_iters_init/n_iters`: cold/warm start 반복 횟수
+  - `cov_learning_rate`: EMA α (0.5 기본, 1.0=즉시 반영)
+  - `sigma_min/sigma_max`: 공분산 클램핑 범위
+  - `elite_ratio`: 0=전체 가중치, >0=상위 비율만
+- **컨트롤러**: `cma_mppi.py:CMAMPPIController`
+  - `compute_control()`: 다중 반복 + 공분산 적응 루프
+  - `cov`: (N, nu) per-timestep 대각 공분산
+  - receding horizon에서 U와 Σ 동시 shift
+
+---
+
+## 18. DBaS-MPPI (Discrete Barrier States)
+
+> **핵심**: 상태를 barrier state β(x)로 증강하여 장애물 정보를 내재화하고,
+> barrier 비용에 비례하는 적응적 탐색 노이즈로 밀집 장애물에서도 가중치 퇴화 방지.
+
+### 18.1 동기
+
+기존 MPPI는 장애물 회피를 **비용 함수 페널티**(ObstacleCost)로만 처리:
+- 밀집 장애물: K개 샘플 대부분이 충돌 → **가중치 퇴화** (ESS → 1)
+- 좁은 통로: 가우시안 노이즈로 좁은 통로 통과 확률 극히 낮음
+- 고정 노이즈: 자유 공간에서 과도한 탐색 vs 장애물 근처에서 부족한 탐색
+
+DBaS-MPPI (arXiv:2502.14387)의 해법:
+1. **Barrier state 증강**: h(x) → B(h) → β(x)로 장애물 정보를 상태에 내재화
+2. **적응적 탐색**: barrier 비용에 비례하여 σ 스케일링
+
+### 18.2 Log Barrier 함수
+
+원형 장애물 $(o_x, o_y, r)$에 대한 제약 함수:
+
+$$h_i(\mathbf{x}) = \|\mathbf{p} - \mathbf{p}_{obs}\|^2 - (r + m)^2$$
+
+여기서 $m$은 안전 마진. $h > 0$이면 안전, $h < 0$이면 충돌.
+
+Log barrier 변환:
+
+$$B(h) = -\log(\max(h, h_{min}))$$
+
+- $h \gg 0$: $B \approx 0$ (안전 → 비용 없음)
+- $h \to 0^+$: $B \to \infty$ (경계 → 무한 비용)
+- $h_{min}$ 클리핑: 특이점 방지
+
+벽 제약 $(axis, val, dir)$에 대해:
+
+$$h_j(\mathbf{x}) = dir \cdot (x_{axis} - val)$$
+
+### 18.3 Barrier State Dynamics
+
+레퍼런스 궤적 $\mathbf{x}_d$에 대한 barrier state 전파:
+
+$$\beta(\mathbf{x}_{k+1}) = B(h(\mathbf{x}_{k+1})) - \gamma \left( B(h(\mathbf{x}_d)) - \beta(\mathbf{x}_k) \right)$$
+
+- $\gamma \in (0,1)$: 수렴률
+  - $\gamma \to 0$: $\beta \approx B(h)$ (순수 barrier)
+  - $\gamma \to 1$: 이전 상태 기억 증가 (더 부드러운 전이)
+- 레퍼런스 근처에서 $B(h(\mathbf{x})) \approx B(h(\mathbf{x}_d))$ → $\beta$ 안정화
+
+### 18.4 Barrier 비용
+
+$$C_B = R_B \sum_{t=0}^{N} \sum_{c=1}^{C} \max(\beta_{t,c}, 0)$$
+
+- $R_B$: barrier 비용 가중치 (`barrier_weight`)
+- 양수 $\beta$만 비용에 기여 (안전 영역의 음수 $\beta$는 무시)
+
+총 비용: $J_k = J_{base,k} + C_{B,k}$
+
+### 18.5 적응적 탐색
+
+Best 궤적의 barrier 비용으로 탐색 노이즈 스케일링:
+
+$$S_e = \mu \cdot \log(e + C_B(\mathbf{X}^*_{best}))$$
+
+$$\sigma_{eff} = \sigma \cdot (1 + S_e)$$
+
+- **자유 공간**: $C_B \approx 0$ → $S_e \approx \mu$ → 정밀 제어
+- **장애물 근처**: $C_B \gg 0$ → $S_e \gg 1$ → 확대된 탐색
+- $\mu$: 탐색 계수 (`exploration_coeff`)
+
+### 18.6 알고리즘
+
+```
+Input: state x, reference x_d, obstacles, walls
+       Previous: U (N, nu), adaptive_scale
+
+1. sigma_eff = sigma * (1 + adaptive_scale)
+2. noise ~ N(0, sigma_eff²)  →  (K, N, nu)
+3. sampled_controls = U + noise
+4. trajectories = rollout(x, sampled_controls)  →  (K, N+1, nx)
+5. base_costs = cost_function(trajectories, controls, reference)
+6. h = constraint_values(trajectories[:,:,:2])  →  (K, N+1, C)
+7. B = -log(max(h, h_min))
+8. beta dynamics propagation → barrier_states  →  (K, N+1, C)
+9. barrier_costs = RB * sum(max(beta, 0))
+10. total_costs = base_costs + barrier_costs
+11. weights = softmax(-total_costs / lambda)
+12. U += sum(weights * noise)
+13. optimal_control = U[0]
+14. U = shift(U)  [receding horizon]
+15. adaptive_scale = mu * log(e + barrier_costs[best])
+
+Return: optimal_control, info
+```
+
+### 18.7 Shield-MPPI / CBF-MPPI 와의 비교
+
+| 특성 | CBF-MPPI | Shield-MPPI | DBaS-MPPI |
+|------|----------|-------------|-----------|
+| 안전 보장 | 소프트 (비용) | 하드 (QP 필터) | 소프트 (barrier) |
+| 노이즈 적응 | 없음 | 없음 | 있음 (Se) |
+| 벽 제약 | 없음 | CBF로 인코딩 | 네이티브 지원 |
+| 계산 복잡도 | O(KC) | O(KNC) QP | O(KNC) 산술 |
+| 가중치 퇴화 | 취약 | 불가능 (모두 안전) | 적응적 완화 |
+| 동적 장애물 | 정적만 | 정적만 | update_obstacles() |
+
+### 18.8 코드 연결
+
+- **파라미터**: `mppi_params.py:DBaSMPPIParams`
+  - `dbas_obstacles`: 원형 장애물 [(x,y,r), ...]
+  - `dbas_walls`: 벽 제약 [('x'|'y', val, dir), ...]
+  - `barrier_weight`: $R_B$, `barrier_gamma`: $\gamma$
+  - `exploration_coeff`: $\mu$, `h_min`: 클리핑
+  - `use_adaptive_exploration`: $S_e$ 활성화
+- **컨트롤러**: `dbas_mppi.py:DBaSMPPIController`
+  - `_compute_constraint_values()`: 원형 + 벽 제약 일괄 계산
+  - `_barrier_function()`: $B(h) = -\log(\max(h, h_{min}))$
+  - `_compute_barrier_cost()`: barrier state dynamics + 비용
+  - `update_obstacles()`: 동적 장애물 실시간 갱신
+  - info에 `dbas_stats` (adaptive_scale, barrier_cost, min_constraint)
+
+---
+
+## 19. 변형 선택 가이드
 
 ### 의사결정 트리
 
@@ -3154,12 +3432,18 @@ MPPI 변형 선택
 │  │       └─ jerk 최소화?      → Smooth MPPI
 │  └─ No ─┐
 │          │
+├─ 밀집 장애물 / 좁은 통로?
+│  ├─ Yes ─┬─ 벽 제약 필요?       → DBaS-MPPI
+│  │       └─ 동적 장애물?        → DBaS-MPPI (update_obstacles)
+│  └─ No ─┐
+│          │
 ├─ 안전이 최우선인가?
 │  ├─ Yes → Risk-Aware MPPI (+ Safety 기법, SAFETY_THEORY.md 참조)
 │  └─ No ─┐
 │          │
 ├─ 지역 최적 탈출?
-│  ├─ Yes → DIAL-MPPI
+│  ├─ Yes ─┬─ 등방 감쇠 OK?     → DIAL-MPPI
+│  │       └─ 비용 지형 적응?   → CMA-MPPI
 │  └─ No ─┐
 │          │
 ├─ 수치 안정성 이슈?
@@ -3191,6 +3475,8 @@ MPPI 변형 선택
 │ C2U          │ ★★    │ ★★★★  │ ★★★★★ │ ★★★   │ ★★★★  │
 │ Flow         │ ★★★   │ ★★★★★ │ ★★★★  │ ★★★   │ ★★★★★ │
 │ BNN          │ ★★★   │ ★★★★  │ ★★★★★ │ ★★★★  │ ★★★   │
+│ CMA          │ ★★★   │ ★★★★★ │ ★★★★  │ ★★★★  │ ★★★   │
+│ DBaS         │ ★★★★  │ ★★★★  │ ★★★★  │ ★★★★  │ ★★★   │
 └──────────────┴────────┴────────┴────────┴────────┴────────┘
 ```
 
@@ -3200,6 +3486,8 @@ MPPI 변형 선택
 |---------|----------|------|
 | 깨끗한 환경, 기본 | Vanilla / Log | 단순, 빠름 |
 | 외란 환경 (바람) | Tube + DIAL | 강건성 + 전역 탐색 |
+| 비대칭 장애물 | CMA | 비용 지형 적응 공분산 |
+| 밀집 장애물 / 좁은 통로 | DBaS | barrier state + 적응적 탐색 |
 | 장애물 + 안전 | Risk-Aware + Shield | CVaR + CBF 보장 |
 | 다중 경로 | Flow / SVG | 다중 모달 샘플링 |
 | 실시간 제약 | Spline / SVG | 메모리/계산 효율 |

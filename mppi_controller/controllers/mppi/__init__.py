@@ -48,6 +48,12 @@ from mppi_controller.controllers.mppi.bnn_mppi import (
     FeasibilityCost,
 )
 from mppi_controller.controllers.mppi.mppi_params import BNNMPPIParams
+from mppi_controller.controllers.mppi.latent_mppi import LatentMPPIController
+from mppi_controller.controllers.mppi.mppi_params import LatentMPPIParams
+from mppi_controller.controllers.mppi.cma_mppi import CMAMPPIController
+from mppi_controller.controllers.mppi.mppi_params import CMAMPPIParams
+from mppi_controller.controllers.mppi.dbas_mppi import DBaSMPPIController
+from mppi_controller.controllers.mppi.mppi_params import DBaSMPPIParams
 from mppi_controller.controllers.mppi.autotune import (
     AutotuneObjective,
     AutotuneConfig,
@@ -103,6 +109,15 @@ __all__ = [
     "BNNMPPIController",
     "BNNMPPIParams",
     "FeasibilityCost",
+    # Latent-Space MPPI
+    "LatentMPPIController",
+    "LatentMPPIParams",
+    # CMA-MPPI
+    "CMAMPPIController",
+    "CMAMPPIParams",
+    # DBaS-MPPI
+    "DBaSMPPIController",
+    "DBaSMPPIParams",
     # Autotune
     "AutotuneObjective",
     "AutotuneConfig",

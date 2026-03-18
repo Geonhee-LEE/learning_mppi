@@ -2,13 +2,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1200%2B%20Passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1267%2B%20Passing-brightgreen)](tests/)
 
-A comprehensive MPPI (Model Predictive Path Integral) control library featuring 16 SOTA variants, **22 safety-critical control methods**, 13 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **Evidential Deep Learning (EDL)** for single-pass aleatoric/epistemic uncertainty separation, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
+A comprehensive MPPI (Model Predictive Path Integral) control library featuring 19 SOTA variants, **22 safety-critical control methods**, 14 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **Evidential Deep Learning (EDL)** for single-pass aleatoric/epistemic uncertainty separation, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
 
 ## Key Features
 
-### 16 MPPI Variants
+### 19 MPPI Variants
 
 | # | Variant | Reference | Key Feature |
 |---|---------|-----------|-------------|
@@ -28,6 +28,9 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 | 14 | **Diffusion-MPPI** | — | DDPM/DDIM reverse diffusion sampling |
 | 15 | **WBC-MPPI** | — | Whole-Body Control (mobile manipulator) |
 | 16 | **BNN-MPPI** | Ezeji et al., 2025 | Ensemble uncertainty feasibility filtering |
+| 17 | **Latent-MPPI** | Hafner et al., 2019 | VAE latent-space rollout + hybrid cost |
+| 18 | **CMA-MPPI** | — | Per-timestep covariance adaptation from reward-weighted samples |
+| 19 | **DBaS-MPPI** | Joshi et al., 2025 | Barrier state augmentation + adaptive exploration |
 
 ### 5 Robot Model Types
 
@@ -85,7 +88,7 @@ Enable GPU acceleration with just `device="cuda"`. No changes to existing CPU co
 
 ### Learning-Based Models
 
-- **13 model types**: Neural Network, Gaussian Process, Residual, Ensemble NN, MC-Dropout Bayesian NN, **MAML (Meta-Learning)**, **EKF Adaptive**, **L1 Adaptive**, **ALPaCA (Bayesian)**, **Flow Matching** (CFM velocity field), **Diffusion** (DDPM/DDIM), **Neural CBF** (learned barrier), **EDL** (Evidential Deep Learning, single-pass aleatoric/epistemic uncertainty)
+- **14 model types**: Neural Network, Gaussian Process, Residual, Ensemble NN, MC-Dropout Bayesian NN, **MAML (Meta-Learning)**, **EKF Adaptive**, **L1 Adaptive**, **ALPaCA (Bayesian)**, **Flow Matching** (CFM velocity field), **Diffusion** (DDPM/DDIM), **Neural CBF** (learned barrier), **EDL** (Evidential Deep Learning, single-pass aleatoric/epistemic uncertainty), **World Model VAE** (latent-space dynamics for Latent-MPPI)
 - **MAML meta-learning**: FOMAML/Reptile-based few-shot adaptation — Residual MAML-5D achieves 0.055m RMSE under combined disturbances (noise=0.7)
 - **Post-MAML adaptation**: EKF (parameter estimation), L1 (disturbance estimation + low-pass filter), ALPaCA (Bayesian linear regression)
 - **Disturbance simulation**: WindGust, TerrainChange, Sinusoidal, Combined profiles for evaluating model adaptation
@@ -950,7 +953,7 @@ learning_mppi/
 │   │       └── safety_overlay.py     # CBF contour/collision cone visualization
 │   └── utils/                      # Utilities
 │
-├── tests/                          # Unit tests (1200+ tests, 72 files)
+├── tests/                          # Unit tests (1295+ tests, 81 files)
 ├── examples/                       # Demo scripts
 │   └── simulation_environments/    # 10+ simulation scenarios
 │       ├── common/                 # Shared infrastructure (ABC, obstacles, visualizer)
@@ -968,7 +971,7 @@ learning_mppi/
 ### Quick Start
 
 ```bash
-# Run all tests (1200+ tests)
+# Run all tests (1295+ tests)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # Run with coverage (requires pytest-cov)
@@ -981,7 +984,7 @@ python -m pytest tests/test_base_mppi.py tests/test_tube_mppi.py tests/test_log_
 ### Test Results (2026-03-14)
 
 ```
-============================= 1200+ passed ==============================
+============================= 1295+ passed ==============================
 Python 3.12.12 | pytest 9.0.2 | 72 test files | 0 failures
 ```
 
@@ -1005,12 +1008,12 @@ Python 3.12.12 | pytest 9.0.2 | 72 test files | 0 failures
 | **Data Pipeline** | 3 | 45 | Data pipeline, trainers, online learner |
 | **Nav2 Integration** | 5 | 36 | Follow path, costmap converter, path windower, goal/progress checker |
 | **Others** | 2 | 7 | Dynamic obstacles, etc. |
-| **Total** | **72** | **1100+** | **All passing** |
+| **Total** | **81** | **1295+** | **All passing** |
 
 ### Per-File Test Count
 
 <details>
-<summary>Click to expand full test file breakdown (72 files)</summary>
+<summary>Click to expand full test file breakdown (81 files)</summary>
 
 | # | Test File | Tests | Category |
 |---|-----------|-------|----------|
@@ -1294,7 +1297,7 @@ All variants within ±15% RMSE — the base MPPI algorithm is strong; variants p
 ## Roadmap
 
 ### Completed
-- [x] 16 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC, BNN)
+- [x] 19 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC, BNN, Latent, CMA, DBaS)
 - [x] 5 robot model types (Kinematic/Dynamic/Learned x DiffDrive/Ackermann/Swerve)
 - [x] **22 safety-critical control methods** (CBF/C3BF/DPCBF/HorizonCBF/HardCBF/OptimalDecay/Gatekeeper/BackupCBF/MPS/MultiRobot/CBF-MPPI/Shield/AdaptiveShield/CBFGuided/ShieldSVG/ShieldDIAL/AdaptiveShieldDIAL/ConformalCBF/NeuralCBF/UncertaintyAware/C2U-ChanceConstraint + safe_control comparison)
 - [x] MPCC (Model Predictive Contouring Control) + Superellipsoid obstacles
@@ -1326,7 +1329,7 @@ All variants within ±15% RMSE — the base MPPI algorithm is strong; variants p
 - [x] Safety visualization overlay (CBF contour, collision cone, DPCBF, effective radius)
 - [x] AnimationSaver (MP4/GIF export)
 - [x] Warehouse + Racing Track environment scenarios
-- [x] 1200+ unit tests (72 files)
+- [x] 1295+ unit tests (81 files)
 - [x] 10 simulation environments (static/dynamic/multi-robot/parking/racing/corridor)
 
 ### MPPI 알고리즘 개선
