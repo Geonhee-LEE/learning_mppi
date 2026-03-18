@@ -837,3 +837,49 @@ class DBaSMPPIParams(MPPIParams):
         assert self.exploration_coeff >= 0, "exploration_coeff must be non-negative"
         assert self.h_min > 0, "h_min must be positive"
         assert self.safety_margin >= 0, "safety_margin must be non-negative"
+
+
+@dataclass
+class RobustMPPIParams(MPPIParams):
+    """
+    Robust MPPI (R-MPPI) 전용 파라미터
+
+    피드백을 MPPI 샘플링 루프 내부에 통합하여, 외란 하에서도
+    추적 가능한 제어를 학습. Tube-MPPI의 분리된 2계층 대신
+    MPPI가 외란 보상 능력을 직접 인지.
+
+    핵심:
+        x_nom(t+1) = F(x_nom(t), v(t))
+        x_real(t+1) = F(x_real(t), v(t) + K·(x_real - x_nom)) + w(t)
+        cost_k = Σ_t q(x_real_k(t), ref(t))
+
+    Reference: Gandhi et al., RAL 2021, arXiv:2102.09027
+
+    Attributes:
+        disturbance_std: 외란 표준편차 [x, y, θ, ...]
+        feedback_gain_scale: AncillaryController 게인 스케일
+        disturbance_mode: "gaussian" | "adversarial" | "none"
+        robust_alpha: adversarial 모드 상위 α로 최악 선택
+        use_feedback: 피드백 포함 여부 (False면 Tube 패턴)
+        n_disturbance_samples: 외란 샘플 수 (>1이면 평균)
+    """
+
+    disturbance_std: List[float] = field(
+        default_factory=lambda: [0.05, 0.05, 0.02]
+    )
+    feedback_gain_scale: float = 1.0
+    disturbance_mode: str = "gaussian"
+    robust_alpha: float = 0.8
+    use_feedback: bool = True
+    n_disturbance_samples: int = 1
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert all(s >= 0 for s in self.disturbance_std), \
+            "disturbance_std must be non-negative"
+        assert 0 < self.robust_alpha <= 1, \
+            "robust_alpha must be in (0, 1]"
+        assert self.disturbance_mode in {"gaussian", "adversarial", "none"}, \
+            f"Unknown disturbance_mode: {self.disturbance_mode}"
+        assert self.n_disturbance_samples >= 1, \
+            "n_disturbance_samples must be >= 1"

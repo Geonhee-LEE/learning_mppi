@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-19종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
+20종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [환경 설정](#1-환경-설정)
 2. [기본 MPPI 제어 (기구학)](#2-기본-mppi-제어-기구학)
 3. [동역학 모델 제어](#3-동역학-모델-제어)
-4. [MPPI 변형 19종 벤치마크](#4-mppi-변형-19종-벤치마크)
+4. [MPPI 변형 20종 벤치마크](#4-mppi-변형-20종-벤치마크)
 5. [안전 제어 (CBF / Shield / Adaptive)](#5-안전-제어-cbf--shield--adaptive)
 6. [모델 학습 (NN / GP / Residual / Ensemble)](#6-모델-학습-nn--gp--residual--ensemble)
 7. [메타 학습 및 온라인 적응](#7-메타-학습-및-온라인-적응-maml--lora--ekf--l1--alpaca)
@@ -187,7 +187,7 @@ PYTHONPATH=. python examples/comparison/kinematic_vs_dynamic_demo.py --no-plot
 
 ---
 
-## 4. MPPI 변형 19종 벤치마크
+## 4. MPPI 변형 20종 벤치마크
 
 19가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
 각 변형은 특정 문제(분포 왜곡, 위험 회피, 샘플 다양성 등)를
@@ -252,7 +252,7 @@ UncertaintyMPPIParams(K=1024, N=30, strategy="two_pass")
 
 ### 기대 결과
 
-- 19종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
+- 20종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
 - 궤적 비교 플롯 (각 변형의 추적 경로 오버레이)
 - Vanilla 대비 각 변형의 상대 성능 비율
 
@@ -830,6 +830,42 @@ PYTHONPATH=. python examples/comparison/dbas_mppi_benchmark.py --live --scenario
 | `h_min` | Barrier 클리핑 (특이점 방지) | 1e-6 |
 | `safety_margin` | 추가 안전 마진 (m) | 0.1 |
 | `use_adaptive_exploration` | 적응적 탐색 활성화 | True |
+
+### 9.10 R-MPPI (Robust MPPI) 벤치마크
+
+피드백 게인을 MPPI 샘플링 루프 내부에 통합하여, 명목/실제 궤적을 동시에 롤아웃하고
+실제 궤적 기반으로 비용을 평가합니다. Tube-MPPI의 분리 구조(사후 피드백)를 개선합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py
+
+# 노이즈 시나리오 (R-MPPI 피드백 통합 우위)
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --scenario noisy
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --scenario obstacle
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --live --scenario noisy
+
+# 플롯 없이 (headless)
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --no-plot
+```
+
+**R-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `disturbance_std` | 외란 표준편차 $\sigma_d$ | 0.1 |
+| `feedback_gain_scale` | 피드백 게인 스케일 | 1.0 |
+| `disturbance_mode` | 외란 모드 (`"gaussian"` \| `"adversarial"` \| `"none"`) | `"gaussian"` |
+| `robust_alpha` | adversarial 외란 크기 | 0.1 |
+| `use_feedback` | 피드백 통합 활성화 | True |
+| `n_disturbance_samples` | 외란 샘플 수 | 1 |
 
 ---
 

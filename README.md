@@ -4,11 +4,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-1267%2B%20Passing-brightgreen)](tests/)
 
-A comprehensive MPPI (Model Predictive Path Integral) control library featuring 19 SOTA variants, **22 safety-critical control methods**, 14 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **Evidential Deep Learning (EDL)** for single-pass aleatoric/epistemic uncertainty separation, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
+A comprehensive MPPI (Model Predictive Path Integral) control library featuring 20 SOTA variants, **22 safety-critical control methods**, 14 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **Evidential Deep Learning (EDL)** for single-pass aleatoric/epistemic uncertainty separation, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
 
 ## Key Features
 
-### 19 MPPI Variants
+### 20 MPPI Variants
 
 | # | Variant | Reference | Key Feature |
 |---|---------|-----------|-------------|
@@ -31,6 +31,7 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 | 17 | **Latent-MPPI** | Hafner et al., 2019 | VAE latent-space rollout + hybrid cost |
 | 18 | **CMA-MPPI** | — | Per-timestep covariance adaptation from reward-weighted samples |
 | 19 | **DBaS-MPPI** | Joshi et al., 2025 | Barrier state augmentation + adaptive exploration |
+| 20 | **Robust MPPI** | Gandhi et al., 2021 | Integrated feedback in sampling loop + disturbance models |
 
 ### 5 Robot Model Types
 
@@ -1281,6 +1282,9 @@ All variants within ±15% RMSE — the base MPPI algorithm is strong; variants p
 - Finn et al. (2017) - "Model-Agnostic Meta-Learning for Fast Adaptation" (MAML)
 - Nichol et al. (2018) - "On First-Order Meta-Learning Algorithms" (FOMAML)
 
+### Robust MPPI
+- Gandhi, M. et al. (2021) - "Robust Model Predictive Path Integral Control" (arXiv:2102.09027)
+
 ### Diffusion Annealing
 - Howell et al. (2024) - "DIAL-MPC: Diffusion-Inspired Annealing for Model Predictive Control"
 
@@ -1297,7 +1301,7 @@ All variants within ±15% RMSE — the base MPPI algorithm is strong; variants p
 ## Roadmap
 
 ### Completed
-- [x] 19 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC, BNN, Latent, CMA, DBaS)
+- [x] 20 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC, BNN, Latent, CMA, DBaS, Robust)
 - [x] 5 robot model types (Kinematic/Dynamic/Learned x DiffDrive/Ackermann/Swerve)
 - [x] **22 safety-critical control methods** (CBF/C3BF/DPCBF/HorizonCBF/HardCBF/OptimalDecay/Gatekeeper/BackupCBF/MPS/MultiRobot/CBF-MPPI/Shield/AdaptiveShield/CBFGuided/ShieldSVG/ShieldDIAL/AdaptiveShieldDIAL/ConformalCBF/NeuralCBF/UncertaintyAware/C2U-ChanceConstraint + safe_control comparison)
 - [x] MPCC (Model Predictive Contouring Control) + Superellipsoid obstacles

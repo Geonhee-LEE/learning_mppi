@@ -54,6 +54,8 @@ from mppi_controller.controllers.mppi.cma_mppi import CMAMPPIController
 from mppi_controller.controllers.mppi.mppi_params import CMAMPPIParams
 from mppi_controller.controllers.mppi.dbas_mppi import DBaSMPPIController
 from mppi_controller.controllers.mppi.mppi_params import DBaSMPPIParams
+from mppi_controller.controllers.mppi.robust_mppi import RobustMPPIController
+from mppi_controller.controllers.mppi.mppi_params import RobustMPPIParams
 from mppi_controller.controllers.mppi.autotune import (
     AutotuneObjective,
     AutotuneConfig,
@@ -118,6 +120,9 @@ __all__ = [
     # DBaS-MPPI
     "DBaSMPPIController",
     "DBaSMPPIParams",
+    # Robust MPPI
+    "RobustMPPIController",
+    "RobustMPPIParams",
     # Autotune
     "AutotuneObjective",
     "AutotuneConfig",
