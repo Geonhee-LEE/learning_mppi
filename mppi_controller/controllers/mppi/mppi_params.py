@@ -397,6 +397,49 @@ class DIALMPPIParams(MPPIParams):
 
 
 @dataclass
+class CMAMPPIParams(MPPIParams):
+    """
+    CMA-MPPI (Covariance Matrix Adaptation MPPI) 전용 파라미터
+
+    CMA-ES 영감: 보상 가중 샘플로부터 per-timestep 대각 공분산을 학습.
+    DIAL-MPPI의 등방적 고정 감쇠 대신, 비용 지형 적응적 탐색.
+
+    Attributes:
+        n_iters_init: Cold start 반복 횟수 (첫 호출)
+        n_iters: Warm start 반복 횟수 (이후 호출)
+        cov_learning_rate: 공분산 EMA 학습률 α ∈ (0, 1]
+        sigma_min: 최소 σ (발산 방지)
+        sigma_max: 최대 σ
+        elite_ratio: 0=전체 가중치 사용, >0=상위 비율만
+        use_mean_shift: True=전체 교체(DIAL식), False=증분(Vanilla식)
+        use_reward_normalization: 보상 정규화 활성화
+        cov_init_scale: 초기 공분산 = (sigma * scale)²
+    """
+
+    n_iters_init: int = 8
+    n_iters: int = 3
+    cov_learning_rate: float = 0.5
+    sigma_min: float = 0.05
+    sigma_max: float = 3.0
+    elite_ratio: float = 0.0
+    use_mean_shift: bool = True
+    use_reward_normalization: bool = True
+    cov_init_scale: float = 1.0
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.n_iters_init > 0, "n_iters_init must be positive"
+        assert self.n_iters > 0, "n_iters must be positive"
+        assert 0 < self.cov_learning_rate <= 1.0, \
+            "cov_learning_rate must be in (0, 1]"
+        assert self.sigma_min > 0, "sigma_min must be positive"
+        assert self.sigma_max > self.sigma_min, \
+            "sigma_max must be greater than sigma_min"
+        assert 0 <= self.elite_ratio < 1, "elite_ratio must be in [0, 1)"
+        assert self.cov_init_scale > 0, "cov_init_scale must be positive"
+
+
+@dataclass
 class ShieldDIALMPPIParams(DIALMPPIParams):
     """
     Shield-DIAL-MPPI 전용 추가 파라미터
@@ -721,3 +764,122 @@ class BNNMPPIParams(MPPIParams):
             "max_filter_ratio must be in (0, 1]"
         assert self.margin_scale >= 0, "margin_scale must be non-negative"
         assert self.margin_max >= 0, "margin_max must be non-negative"
+
+
+@dataclass
+class LatentMPPIParams(MPPIParams):
+    """
+    Latent-Space MPPI 전용 파라미터
+
+    VAE 잠재 공간에서 K×N 롤아웃 → 디코딩 → 기존 비용 함수 재사용.
+
+    Attributes:
+        latent_dim: VAE 잠재 공간 차원
+        vae_hidden_dims: VAE 은닉층 차원
+        vae_beta: KL 가중치 (작을수록 재구성 우선)
+        vae_model_path: 사전 학습 VAE 모델 경로
+        decode_interval: 디코딩 간격 (1=매 스텝)
+        use_latent_rollout: 잠재 롤아웃 활성화 (False면 Vanilla MPPI 폴백)
+    """
+
+    latent_dim: int = 16
+    vae_hidden_dims: List[int] = field(default_factory=lambda: [128, 128])
+    vae_beta: float = 0.001
+    vae_model_path: Optional[str] = None
+    decode_interval: int = 1
+    use_latent_rollout: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.latent_dim > 0, "latent_dim must be positive"
+        assert self.decode_interval > 0, "decode_interval must be positive"
+        assert self.vae_beta >= 0, "vae_beta must be non-negative"
+
+
+@dataclass
+class DBaSMPPIParams(MPPIParams):
+    """
+    DBaS-MPPI (Discrete Barrier States MPPI) 전용 파라미터
+
+    Barrier state 증강 + 적응적 탐색 노이즈로 밀집 장애물 환경에서
+    가중치 퇴화 없이 안전한 궤적을 생성.
+
+    핵심:
+        - Log barrier: B(h) = -log(max(h, h_min))
+        - Barrier state dynamics: β(x_{t+1}) = B(h(x_{t+1})) - γ(B(h(x_d)) - β(x_t))
+        - 적응적 탐색: σ_eff = σ × (1 + μ·log(e + C_B))
+
+    Attributes:
+        dbas_obstacles: 원형 장애물 리스트 [(x, y, radius), ...]
+        dbas_walls: 벽 제약 리스트 [('x'|'y', value, direction), ...]
+            direction: +1 (val 이상) 또는 -1 (val 이하)
+        barrier_weight: RB — barrier 비용 가중치
+        barrier_gamma: γ ∈ (0,1) — barrier 상태 수렴률
+        exploration_coeff: μ — 적응적 탐색 계수
+        h_min: barrier 클리핑 (특이점 방지)
+        safety_margin: 추가 안전 마진 (m)
+        use_adaptive_exploration: Se = μ·log(e + CB) 활성화
+    """
+
+    dbas_obstacles: List[tuple] = field(default_factory=list)
+    dbas_walls: List[tuple] = field(default_factory=list)
+    barrier_weight: float = 10.0
+    barrier_gamma: float = 0.5
+    exploration_coeff: float = 1.0
+    h_min: float = 1e-6
+    safety_margin: float = 0.1
+    use_adaptive_exploration: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.barrier_weight >= 0, "barrier_weight must be non-negative"
+        assert 0 < self.barrier_gamma < 1, "barrier_gamma must be in (0, 1)"
+        assert self.exploration_coeff >= 0, "exploration_coeff must be non-negative"
+        assert self.h_min > 0, "h_min must be positive"
+        assert self.safety_margin >= 0, "safety_margin must be non-negative"
+
+
+@dataclass
+class RobustMPPIParams(MPPIParams):
+    """
+    Robust MPPI (R-MPPI) 전용 파라미터
+
+    피드백을 MPPI 샘플링 루프 내부에 통합하여, 외란 하에서도
+    추적 가능한 제어를 학습. Tube-MPPI의 분리된 2계층 대신
+    MPPI가 외란 보상 능력을 직접 인지.
+
+    핵심:
+        x_nom(t+1) = F(x_nom(t), v(t))
+        x_real(t+1) = F(x_real(t), v(t) + K·(x_real - x_nom)) + w(t)
+        cost_k = Σ_t q(x_real_k(t), ref(t))
+
+    Reference: Gandhi et al., RAL 2021, arXiv:2102.09027
+
+    Attributes:
+        disturbance_std: 외란 표준편차 [x, y, θ, ...]
+        feedback_gain_scale: AncillaryController 게인 스케일
+        disturbance_mode: "gaussian" | "adversarial" | "none"
+        robust_alpha: adversarial 모드 상위 α로 최악 선택
+        use_feedback: 피드백 포함 여부 (False면 Tube 패턴)
+        n_disturbance_samples: 외란 샘플 수 (>1이면 평균)
+    """
+
+    disturbance_std: List[float] = field(
+        default_factory=lambda: [0.05, 0.05, 0.02]
+    )
+    feedback_gain_scale: float = 1.0
+    disturbance_mode: str = "gaussian"
+    robust_alpha: float = 0.8
+    use_feedback: bool = True
+    n_disturbance_samples: int = 1
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert all(s >= 0 for s in self.disturbance_std), \
+            "disturbance_std must be non-negative"
+        assert 0 < self.robust_alpha <= 1, \
+            "robust_alpha must be in (0, 1]"
+        assert self.disturbance_mode in {"gaussian", "adversarial", "none"}, \
+            f"Unknown disturbance_mode: {self.disturbance_mode}"
+        assert self.n_disturbance_samples >= 1, \
+            "n_disturbance_samples must be >= 1"

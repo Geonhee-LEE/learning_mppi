@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-15종 MPPI 변형, 22종 안전 제어, 13종 학습 모델을 포괄하는 실습 가이드입니다.
+20종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [환경 설정](#1-환경-설정)
 2. [기본 MPPI 제어 (기구학)](#2-기본-mppi-제어-기구학)
 3. [동역학 모델 제어](#3-동역학-모델-제어)
-4. [MPPI 변형 15종 벤치마크](#4-mppi-변형-15종-벤치마크)
+4. [MPPI 변형 20종 벤치마크](#4-mppi-변형-20종-벤치마크)
 5. [안전 제어 (CBF / Shield / Adaptive)](#5-안전-제어-cbf--shield--adaptive)
 6. [모델 학습 (NN / GP / Residual / Ensemble)](#6-모델-학습-nn--gp--residual--ensemble)
 7. [메타 학습 및 온라인 적응](#7-메타-학습-및-온라인-적응-maml--lora--ekf--l1--alpaca)
@@ -64,7 +64,7 @@ PYTHONPATH=. python examples/kinematic/mppi_differential_drive_kinematic_demo.py
 ### 테스트 실행
 
 ```bash
-# 전체 테스트 (1100+개, ~15초)
+# 전체 테스트 (1267+개, ~26초)
 python -m pytest tests/ -v --override-ini="addopts="
 
 # 특정 카테고리
@@ -187,9 +187,9 @@ PYTHONPATH=. python examples/comparison/kinematic_vs_dynamic_demo.py --no-plot
 
 ---
 
-## 4. MPPI 변형 15종 벤치마크
+## 4. MPPI 변형 20종 벤치마크
 
-15가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
+19가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
 각 변형은 특정 문제(분포 왜곡, 위험 회피, 샘플 다양성 등)를
 해결하기 위해 설계되었습니다.
 
@@ -252,7 +252,7 @@ UncertaintyMPPIParams(K=1024, N=30, strategy="two_pass")
 
 ### 기대 결과
 
-- 15종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
+- 20종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
 - 궤적 비교 플롯 (각 변형의 추적 경로 오버레이)
 - Vanilla 대비 각 변형의 상대 성능 비율
 
@@ -733,6 +733,139 @@ PYTHONPATH=. python examples/comparison/edl_benchmark.py --no-plot
 - Neural CBF: 비볼록 장애물에서 분석적 CBF 대비 명확한 우위
 - BNN-MPPI: 불확실 영역 회피, obstacle 시나리오에서 Vanilla보다 안전하고 보수적
 - EDL: 단일 패스로 앙상블 수준 불확실성, 추론 속도 M배 향상
+- Latent-MPPI: VAE 잠재 공간 롤아웃으로 기존 비용 함수 재사용
+
+### 9.7 Latent-Space MPPI 벤치마크
+
+VAE 잠재 공간에서 K×N 롤아웃 후 디코딩하여 기존 비용 함수로 평가합니다.
+물리 모델 직접 rollout 대비 저차원 계획의 특성을 비교합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/latent_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/latent_mppi_benchmark.py --scenario obstacles
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/latent_mppi_benchmark.py --all-scenarios
+
+# 플롯 없이 (headless)
+PYTHONPATH=. python examples/comparison/latent_mppi_benchmark.py --no-plot
+```
+
+**Latent-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `latent_dim` | VAE 잠재 공간 차원 | 16 |
+| `vae_hidden_dims` | VAE MLP 은닉층 | [128, 128] |
+| `vae_beta` | KL 발산 가중치 | 0.001 |
+| `decode_interval` | 디코딩 간격 | 1 |
+
+---
+
+### 9.8 CMA-MPPI (Covariance Matrix Adaptation) 벤치마크
+
+CMA-ES 영감의 적응적 공분산 학습으로, DIAL-MPPI의 등방적 감쇠를 비용 지형 적응적으로 대체합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/cma_mppi_benchmark.py
+
+# 장애물 시나리오 (공분산 적응 시각화)
+PYTHONPATH=. python examples/comparison/cma_mppi_benchmark.py --scenario obstacle
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/cma_mppi_benchmark.py --all-scenarios
+
+# 플롯 없이 (headless)
+PYTHONPATH=. python examples/comparison/cma_mppi_benchmark.py --no-plot
+```
+
+**CMA-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `n_iters_init` | Cold start 반복 횟수 | 8 |
+| `n_iters` | Warm start 반복 횟수 | 3 |
+| `cov_learning_rate` | EMA 학습률 α | 0.5 |
+| `sigma_min` | 최소 σ (발산 방지) | 0.05 |
+| `sigma_max` | 최대 σ | 3.0 |
+| `elite_ratio` | 상위 비율만 사용 (0=전체) | 0.0 |
+
+### 9.9 DBaS-MPPI (Discrete Barrier States) 벤치마크
+
+Barrier state 증강 + 적응적 탐색 노이즈로 밀집 장애물/좁은 통로에서 안전한 제어를 수행합니다.
+
+```bash
+# 밀집 정적 장애물 (warehouse)
+PYTHONPATH=. python examples/comparison/dbas_mppi_benchmark.py --scenario dense_static
+
+# 동적 교차 장애물
+PYTHONPATH=. python examples/comparison/dbas_mppi_benchmark.py --scenario dynamic_crossing
+
+# 좁은 통로 + 벽 제약
+PYTHONPATH=. python examples/comparison/dbas_mppi_benchmark.py --scenario narrow_passage
+
+# 모델 불일치 + 프로세스 노이즈
+PYTHONPATH=. python examples/comparison/dbas_mppi_benchmark.py --scenario noisy_mismatch
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/dbas_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/dbas_mppi_benchmark.py --live --scenario dynamic_crossing
+```
+
+**DBaS-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `dbas_obstacles` | 원형 장애물 [(x,y,r), ...] | [] |
+| `dbas_walls` | 벽 제약 [('x'\|'y', val, dir), ...] | [] |
+| `barrier_weight` | Barrier 비용 가중치 $R_B$ | 10.0 |
+| `barrier_gamma` | Barrier state 수렴률 $\gamma$ | 0.5 |
+| `exploration_coeff` | 적응적 탐색 계수 $\mu$ | 1.0 |
+| `h_min` | Barrier 클리핑 (특이점 방지) | 1e-6 |
+| `safety_margin` | 추가 안전 마진 (m) | 0.1 |
+| `use_adaptive_exploration` | 적응적 탐색 활성화 | True |
+
+### 9.10 R-MPPI (Robust MPPI) 벤치마크
+
+피드백 게인을 MPPI 샘플링 루프 내부에 통합하여, 명목/실제 궤적을 동시에 롤아웃하고
+실제 궤적 기반으로 비용을 평가합니다. Tube-MPPI의 분리 구조(사후 피드백)를 개선합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py
+
+# 노이즈 시나리오 (R-MPPI 피드백 통합 우위)
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --scenario noisy
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --scenario obstacle
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --live --scenario noisy
+
+# 플롯 없이 (headless)
+PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --no-plot
+```
+
+**R-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `disturbance_std` | 외란 표준편차 $\sigma_d$ | 0.1 |
+| `feedback_gain_scale` | 피드백 게인 스케일 | 1.0 |
+| `disturbance_mode` | 외란 모드 (`"gaussian"` \| `"adversarial"` \| `"none"`) | `"gaussian"` |
+| `robust_alpha` | adversarial 외란 크기 | 0.1 |
+| `use_feedback` | 피드백 통합 활성화 | True |
+| `n_disturbance_samples` | 외란 샘플 수 | 1 |
 
 ---
 
