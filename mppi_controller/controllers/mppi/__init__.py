@@ -58,6 +58,8 @@ from mppi_controller.controllers.mppi.robust_mppi import RobustMPPIController
 from mppi_controller.controllers.mppi.mppi_params import RobustMPPIParams
 from mppi_controller.controllers.mppi.spectral_risk_mppi import ASRMPPIController
 from mppi_controller.controllers.mppi.mppi_params import ASRMPPIParams
+from mppi_controller.controllers.mppi.score_guided_mppi import SGMPPIController
+from mppi_controller.controllers.mppi.mppi_params import SGMPPIParams
 from mppi_controller.controllers.mppi.autotune import (
     AutotuneObjective,
     AutotuneConfig,
@@ -128,6 +130,9 @@ __all__ = [
     # ASR-MPPI (Adaptive Spectral Risk)
     "ASRMPPIController",
     "ASRMPPIParams",
+    # SG-MPPI (Score-Guided)
+    "SGMPPIController",
+    "SGMPPIParams",
     # Autotune
     "AutotuneObjective",
     "AutotuneConfig",

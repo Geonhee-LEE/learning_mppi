@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-21종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
+22종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [환경 설정](#1-환경-설정)
 2. [기본 MPPI 제어 (기구학)](#2-기본-mppi-제어-기구학)
 3. [동역학 모델 제어](#3-동역학-모델-제어)
-4. [MPPI 변형 21종 벤치마크](#4-mppi-변형-21종-벤치마크)
+4. [MPPI 변형 22종 벤치마크](#4-mppi-변형-21종-벤치마크)
 5. [안전 제어 (CBF / Shield / Adaptive)](#5-안전-제어-cbf--shield--adaptive)
 6. [모델 학습 (NN / GP / Residual / Ensemble)](#6-모델-학습-nn--gp--residual--ensemble)
 7. [메타 학습 및 온라인 적응](#7-메타-학습-및-온라인-적응-maml--lora--ekf--l1--alpaca)
@@ -187,9 +187,9 @@ PYTHONPATH=. python examples/comparison/kinematic_vs_dynamic_demo.py --no-plot
 
 ---
 
-## 4. MPPI 변형 21종 벤치마크
+## 4. MPPI 변형 22종 벤치마크
 
-20가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
+22가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
 각 변형은 특정 문제(분포 왜곡, 위험 회피, 샘플 다양성 등)를
 해결하기 위해 설계되었습니다.
 
@@ -233,6 +233,7 @@ PYTHONPATH=. python examples/mppi_all_variants_benchmark.py --no-plot
 | 19 | **DBaS** | Barrier state 증강 + 적응적 탐색 노이즈 | 밀집 장애물 + 좁은 통로 |
 | 20 | **Robust** | 피드백 게인 + 외란 모델링 | 외란 강건성 |
 | 21 | **ASR** | Spectral Risk Measure + 적응적 왜곡 함수 | 부드러운 위험 가중 |
+| 22 | **SG** | Denoising Score Matching + score-guided 샘플링 | 비용 지형 기반 유도 |
 
 ### 변형별 고유 파라미터
 
@@ -258,7 +259,7 @@ UncertaintyMPPIParams(K=1024, N=30, strategy="two_pass")
 
 ### 기대 결과
 
-- 21종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
+- 22종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
 - 궤적 비교 플롯 (각 변형의 추적 경로 오버레이)
 - Vanilla 대비 각 변형의 상대 성능 비율
 
@@ -905,6 +906,39 @@ PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py --live -
 | `distortion_gamma` | 지수 (power: q^γ) | 1.0 |
 | `use_adaptive_risk` | ESS 기반 자동 β 조절 | False |
 | `adaptation_rate` | 적응 속도 (EMA) | 0.1 |
+
+### 9.12 SG-MPPI (Score-Guided) 벤치마크
+
+Denoising Score Matching으로 비용 지형의 score function을 학습하고,
+MPPI 가우시안 노이즈에 score 방향 bias를 추가하여 저비용 영역으로 유도합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py
+
+# 장애물 시나리오 (score가 회피 방향 학습)
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --scenario obstacles
+
+# 다봉 비용 (경로 선택)
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --scenario multimodal
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --live --scenario obstacles
+```
+
+**SG-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `guidance_scale` | Score bias 강도 α | 0.5 |
+| `guidance_decay` | 다중 반복 시 α 감쇠율 | 0.95 |
+| `n_guide_iters` | Score-guided 반복 횟수 | 1 |
+| `use_annealing` | DIAL-style σ 어닐링 결합 | False |
+| `score_online_training` | 온라인 학습 활성화 | False |
+| `score_training_interval` | 학습 주기 (스텝) | 20 |
 
 ---
 

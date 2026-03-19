@@ -933,3 +933,69 @@ class ASRMPPIParams(MPPIParams):
             "adaptation_window must be >= 1"
         assert 0 < self.min_ess_ratio <= 1, \
             "min_ess_ratio must be in (0, 1]"
+
+
+@dataclass
+class SGMPPIParams(MPPIParams):
+    """
+    SG-MPPI (Score-Guided MPPI) 전용 파라미터
+
+    Denoising Score Matching으로 비용 지형의 score function을 학습하고,
+    MPPI 가우시안 노이즈에 score 방향 bias를 추가하여 저비용 영역으로 유도.
+
+    핵심 수식:
+        s_θ(U, σ, state) ≈ ∇_U log p(U|state)
+        ε_guided = ε + α · σ² · s_θ(U + ε, σ, state)
+
+    Attributes:
+        score_hidden_dims: Score network 은닉층 차원
+        n_sigma_levels: DSM 노이즈 스케일 개수
+        sigma_min: 최소 노이즈 스케일
+        sigma_max: 최대 노이즈 스케일
+        guidance_scale: α — score bias 강도
+        guidance_decay: 다중 반복 시 α 감쇠율
+        n_guide_iters: score-guided 반복 횟수 (1=단일)
+        use_annealing: DIAL-style σ 어닐링 결합
+        score_online_training: 온라인 학습 활성화
+        score_training_interval: 학습 주기 (스텝)
+        score_min_samples: 최소 학습 샘플
+        score_buffer_size: 데이터 버퍼 크기
+        score_model_path: 사전 학습 모델 경로
+    """
+
+    # Score network
+    score_hidden_dims: List[int] = field(default_factory=lambda: [128, 128])
+    n_sigma_levels: int = 10
+    sigma_min: float = 0.01
+    sigma_max: float = 1.0
+
+    # Guidance
+    guidance_scale: float = 0.5
+    guidance_decay: float = 0.95
+
+    # Multi-iteration (DIAL 결합, 선택)
+    n_guide_iters: int = 1
+    use_annealing: bool = False
+
+    # Online learning
+    score_online_training: bool = False
+    score_training_interval: int = 20
+    score_min_samples: int = 50
+    score_buffer_size: int = 2000
+    score_model_path: Optional[str] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.n_sigma_levels >= 1, "n_sigma_levels must be >= 1"
+        assert 0 < self.sigma_min < self.sigma_max, \
+            "sigma_min must be in (0, sigma_max)"
+        assert self.guidance_scale >= 0, "guidance_scale must be non-negative"
+        assert 0 < self.guidance_decay <= 1, \
+            "guidance_decay must be in (0, 1]"
+        assert self.n_guide_iters >= 1, "n_guide_iters must be >= 1"
+        assert self.score_training_interval >= 1, \
+            "score_training_interval must be >= 1"
+        assert self.score_min_samples >= 1, \
+            "score_min_samples must be >= 1"
+        assert self.score_buffer_size >= self.score_min_samples, \
+            "score_buffer_size must be >= score_min_samples"

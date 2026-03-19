@@ -9,8 +9,8 @@
 ## 프로젝트 개요
 
 MPPI (Model Predictive Path Integral) 기반 모바일 로봇 제어 시스템
-- 21종 MPPI 변형, 22종 안전 제어, 14종 학습 모델
-- 1295+ tests / 81+ files / ~56,000+ lines
+- 22종 MPPI 변형, 22종 안전 제어, 14종 학습 모델
+- 1351+ tests / 83+ files / ~60,000+ lines
 
 ## 인터페이스 규칙
 
@@ -64,6 +64,10 @@ PYTHONPATH=. python examples/comparison/robust_mppi_benchmark.py --live --scenar
 # ASR-MPPI 벤치마크
 PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py --all-scenarios
 PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py --live --scenario obstacles
+
+# SG-MPPI 벤치마크
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --live --scenario obstacles
 ```
 
 ## 데모 결과 출력 규칙

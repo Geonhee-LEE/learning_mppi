@@ -28,7 +28,8 @@
 18. [DBaS-MPPI (Discrete Barrier States)](#18-dbas-mppi-discrete-barrier-states)
 19. [R-MPPI (Robust MPPI)](#19-r-mppi-robust-mppi)
 20. [ASR-MPPI (Adaptive Spectral Risk)](#20-asr-mppi-adaptive-spectral-risk)
-21. [변형 선택 가이드](#21-변형-선택-가이드)
+21. [SG-MPPI (Score-Guided MPPI)](#21-sg-mppi-score-guided-mppi)
+22. [변형 선택 가이드](#22-변형-선택-가이드)
 
 ---
 
@@ -3603,7 +3604,90 @@ $$
 
 ---
 
-## 21. 변형 선택 가이드
+## 21. SG-MPPI (Score-Guided MPPI)
+
+### 21.1 동기: MPPI = Score Ascent 동치
+
+MPPI의 가중 평균 업데이트는 비용 지형의 **score ascent**와 수학적으로 동치:
+
+```
+p(U|state) ∝ exp(-S(U) / λ)           # MPPI의 암묵적 분포
+∇_U log p(U|state) = -∇_U S(U) / λ     # Score function
+```
+
+따라서 비용 지형의 gradient (= score)를 직접 학습하면,
+MPPI 샘플링을 저비용 방향으로 편향시킬 수 있다.
+
+### 21.2 Denoising Score Matching (DSM)
+
+Score function을 직접 계산하려면 정규화 상수 Z가 필요하지만,
+DSM은 Z 없이 score를 학습:
+
+```
+L(θ) = E_{U~data, σ~schedule, ε~N(0,I)} [||s_θ(U + σε, σ, state) - (-ε/σ)||²]
+```
+
+다중 σ 스케일 {σ_1, ..., σ_L} (기하 스케줄)에서 동시 학습하여
+다양한 노이즈 레벨에서의 score를 근사.
+
+### 21.3 Score-Guided Sampling
+
+표준 MPPI 가우시안 노이즈에 score bias 추가:
+
+```
+ε ~ N(0, σ²I)                           # 가우시안 노이즈
+ε_guided = ε + α · σ² · s_θ(U + ε, σ, state)  # Score-guided
+```
+
+- **α = 0**: 순수 가우시안 (Vanilla MPPI) — graceful degradation
+- **α > 0**: 저비용 방향으로 편향
+- **σ² 스케일링**: Langevin dynamics 보정 (σ가 클수록 bias 증가)
+
+### 21.4 DIAL 결합 (선택)
+
+다중 반복 + 어닐링과 자연스럽게 결합:
+
+```
+for i = 1, ..., n_guide_iters:
+    α_i = α · decay^i                    # 반복마다 α 감쇠
+    σ_i = σ · 0.5^i (if annealing)       # DIAL-style 어닐링
+    ε ~ N(0, σ_i²I)
+    ε_guided = ε + α_i · σ_i² · s_θ(U + ε, σ_i, state)
+    rollout + cost + weights → U update
+```
+
+### 21.5 기존 변형 대비 위치
+
+| 특성 | Diffusion-MPPI | Flow-MPPI | DIAL-MPPI | SG-MPPI |
+|------|---------------|-----------|-----------|---------|
+| 샘플러 | DDIM (완전 대체) | ODE Flow (완전 대체) | 어닐링 가우시안 | 가우시안 + score bias |
+| 학습 실패 시 | 가우시안 fallback | 가우시안 fallback | 영향 없음 | 순수 가우시안 |
+| 비용 지형 활용 | 간접 | 간접 | 없음 | 직접 (gradient) |
+| 학습 데이터 | 최적 U 시퀀스 | 최적 U 시퀀스 | 없음 | MPPI 가중 샘플 |
+
+### 21.6 코드 매핑
+
+```python
+# 컨트롤러
+SGMPPIController(MPPIController)
+  ├─ _sample_with_score(): ε + α·σ²·s_θ(U+ε, σ, state)
+  ├─ _compute_single_iter(): 표준 MPPI + score bias
+  ├─ _compute_multi_iter(): DIAL-style 반복 + score guidance
+  └─ _maybe_online_train(): 주기적 DSM 학습
+
+# Score Network
+ScoreNetwork(nn.Module)
+  ├─ SigmaEmbedding: sinusoidal σ 임베딩
+  └─ Zero-init 출력층: 초기 s_θ ≈ 0
+
+# 학습기
+ScoreMatchingTrainer
+  └─ _dsm_step(): L(θ) = E[||s_θ(x+σε, σ, ctx) + ε/σ||²]
+```
+
+---
+
+## 22. 변형 선택 가이드
 
 ### 의사결정 트리
 
