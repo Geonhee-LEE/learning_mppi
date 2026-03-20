@@ -9,7 +9,7 @@
 ## 프로젝트 개요
 
 MPPI (Model Predictive Path Integral) 기반 모바일 로봇 제어 시스템
-- 27종 MPPI 변형, 22종 안전 제어, 14종 학습 모델
+- 32종 MPPI 변형, 22종 안전 제어, 14종 학습 모델
 - 1351+ tests / 83+ files / ~60,000+ lines
 
 ## 인터페이스 규칙
@@ -88,6 +88,26 @@ PYTHONPATH=. python examples/comparison/gn_mppi_benchmark.py --live --scenario o
 # TD-MPPI 벤치마크
 PYTHONPATH=. python examples/comparison/td_mppi_benchmark.py --all-scenarios
 PYTHONPATH=. python examples/comparison/td_mppi_benchmark.py --live --scenario short_horizon
+
+# SVG-MPPI 벤치마크
+PYTHONPATH=. python examples/comparison/svg_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/svg_mppi_benchmark.py --live --scenario obstacles
+
+# pi-MPPI (Projection) 벤치마크
+PYTHONPATH=. python examples/comparison/projection_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/projection_mppi_benchmark.py --live --scenario obstacles
+
+# dsMPPI (Deterministic) 벤치마크
+PYTHONPATH=. python examples/comparison/deterministic_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/deterministic_mppi_benchmark.py --live --scenario obstacles
+
+# DRPA-MPPI 벤치마크
+PYTHONPATH=. python examples/comparison/drpa_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/drpa_mppi_benchmark.py --live --scenario local_minima
+
+# CSC-MPPI 벤치마크
+PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --live --scenario obstacles
 ```
 
 ## 데모 결과 출력 규칙
