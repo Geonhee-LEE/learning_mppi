@@ -4,11 +4,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-1351%2B%20Passing-brightgreen)](tests/)
 
-A comprehensive MPPI (Model Predictive Path Integral) control library featuring 22 SOTA variants, **22 safety-critical control methods**, 14 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **Evidential Deep Learning (EDL)** for single-pass aleatoric/epistemic uncertainty separation, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
+A comprehensive MPPI (Model Predictive Path Integral) control library featuring 27 SOTA variants, **22 safety-critical control methods**, 14 learning models, 5 robot model types, GPU acceleration, learning-based dynamics, MAML meta-learning, post-MAML adaptation (EKF/L1/ALPaCA), **Conformal Prediction + CBF** for distribution-free dynamic safety margins, **Evidential Deep Learning (EDL)** for single-pass aleatoric/epistemic uncertainty separation, **SimulationHarness** for unified multi-controller comparison, **robot body rendering** (circle/car/rectangle patches), and **safety visualization overlay** (CBF contour/collision cone).
 
 ## Key Features
 
-### 22 MPPI Variants
+### 27 MPPI Variants
 
 | # | Variant | Reference | Key Feature |
 |---|---------|-----------|-------------|
@@ -34,6 +34,11 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 | 20 | **Robust MPPI** | Gandhi et al., 2021 | Integrated feedback in sampling loop + disturbance models |
 | 21 | **ASR-MPPI** | Lin et al., 2025 | Spectral risk measure + adaptive distortion |
 | 22 | **SG-MPPI** | Li & Chen, 2025 | Score-guided sampling + denoising score matching |
+| 23 | **LP-MPPI** | Kicki et al., 2025 | Butterworth low-pass filter noise for frequency-domain smoothness |
+| 24 | **Biased-MPPI** | Trevisan & Alonso-Mora, 2024 | Mixture sampling with ancillary policies for local minima escape |
+| 25 | **Residual-MPPI** | Wang et al., 2025 | Pre-trained policy nominal + residual optimization with KL penalty |
+| 26 | **GN-MPPI** | Homburger et al., 2025 | Gauss-Newton 2nd-order update for accelerated convergence |
+| 27 | **TD-MPPI** | Crestaz et al., 2026 | TD-learned terminal value V(x_T) for short-horizon long-range planning |
 
 ### 5 Robot Model Types
 
@@ -1303,7 +1308,7 @@ All variants within ±15% RMSE — the base MPPI algorithm is strong; variants p
 ## Roadmap
 
 ### Completed
-- [x] 21 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC, BNN, Latent, CMA, DBaS, Robust, ASR)
+- [x] 24 MPPI variants (+ DIAL-MPPI, Uncertainty-Aware, C2U, Flow, Diffusion, WBC, BNN, Latent, CMA, DBaS, Robust, ASR, SG, LP, Biased)
 - [x] 5 robot model types (Kinematic/Dynamic/Learned x DiffDrive/Ackermann/Swerve)
 - [x] **22 safety-critical control methods** (CBF/C3BF/DPCBF/HorizonCBF/HardCBF/OptimalDecay/Gatekeeper/BackupCBF/MPS/MultiRobot/CBF-MPPI/Shield/AdaptiveShield/CBFGuided/ShieldSVG/ShieldDIAL/AdaptiveShieldDIAL/ConformalCBF/NeuralCBF/UncertaintyAware/C2U-ChanceConstraint + safe_control comparison)
 - [x] MPCC (Model Predictive Contouring Control) + Superellipsoid obstacles

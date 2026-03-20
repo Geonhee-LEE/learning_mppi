@@ -60,6 +60,33 @@ from mppi_controller.controllers.mppi.spectral_risk_mppi import ASRMPPIControlle
 from mppi_controller.controllers.mppi.mppi_params import ASRMPPIParams
 from mppi_controller.controllers.mppi.score_guided_mppi import SGMPPIController
 from mppi_controller.controllers.mppi.mppi_params import SGMPPIParams
+from mppi_controller.controllers.mppi.lp_mppi import LPMPPIController
+from mppi_controller.controllers.mppi.mppi_params import LPMPPIParams
+from mppi_controller.controllers.mppi.sampling import LowPassSampler
+from mppi_controller.controllers.mppi.residual_mppi import ResidualMPPIController
+from mppi_controller.controllers.mppi.mppi_params import ResidualMPPIParams
+from mppi_controller.controllers.mppi.biased_mppi import BiasedMPPIController
+from mppi_controller.controllers.mppi.mppi_params import BiasedMPPIParams
+from mppi_controller.controllers.mppi.gn_mppi import GNMPPIController
+from mppi_controller.controllers.mppi.mppi_params import GNMPPIParams
+from mppi_controller.controllers.mppi.td_mppi import TDMPPIController
+from mppi_controller.controllers.mppi.mppi_params import TDMPPIParams
+from mppi_controller.controllers.mppi.td_value import (
+    ValueNetwork,
+    TDValueLearner,
+    TDExperienceBuffer,
+)
+from mppi_controller.controllers.mppi.ancillary_policies import (
+    AncillaryPolicy,
+    PurePursuitPolicy,
+    BrakingPolicy,
+    FeedbackPolicy,
+    MaxSpeedPolicy,
+    PreviousSolutionPolicy,
+    create_ancillary_policy,
+    create_policies_from_names,
+    POLICY_REGISTRY,
+)
 from mppi_controller.controllers.mppi.autotune import (
     AutotuneObjective,
     AutotuneConfig,
@@ -133,6 +160,34 @@ __all__ = [
     # SG-MPPI (Score-Guided)
     "SGMPPIController",
     "SGMPPIParams",
+    # LP-MPPI (Low-Pass)
+    "LPMPPIController",
+    "LPMPPIParams",
+    "LowPassSampler",
+    # Residual-MPPI (Residual Optimization)
+    "ResidualMPPIController",
+    "ResidualMPPIParams",
+    # Biased-MPPI (Mixture Sampling)
+    "BiasedMPPIController",
+    "BiasedMPPIParams",
+    "AncillaryPolicy",
+    "PurePursuitPolicy",
+    "BrakingPolicy",
+    "FeedbackPolicy",
+    "MaxSpeedPolicy",
+    "PreviousSolutionPolicy",
+    "create_ancillary_policy",
+    "create_policies_from_names",
+    "POLICY_REGISTRY",
+    # GN-MPPI (Gauss-Newton)
+    "GNMPPIController",
+    "GNMPPIParams",
+    # TD-MPPI (Temporal-Difference)
+    "TDMPPIController",
+    "TDMPPIParams",
+    "ValueNetwork",
+    "TDValueLearner",
+    "TDExperienceBuffer",
     # Autotune
     "AutotuneObjective",
     "AutotuneConfig",

@@ -372,3 +372,114 @@ class UncertaintyAwareSampler(NoiseSampler):
             f"UncertaintyAwareSampler(base_sigma={self.base_sigma}, "
             f"exploration_factor={self.exploration_factor})"
         )
+
+
+class LowPassSampler(NoiseSampler):
+    """
+    Butterworth 저역통과 필터 노이즈 샘플러
+
+    가우시안 노이즈에 Butterworth LPF를 적용하여 고주파 성분을 제거.
+    scipy.signal.sosfilt 벡터화로 Python 루프 없이 (K, N, nu) 일괄 처리.
+
+    |H(f)|² = 1 / (1 + (f/f_c)^(2n))
+
+    Args:
+        sigma: (nu,) 표준편차
+        cutoff_freq: 차단 주파수 (Hz)
+        filter_order: 필터 차수
+        dt: 타임스텝 간격 (초)
+        normalize_variance: 필터 후 분산 정규화 여부
+        seed: 랜덤 시드
+    """
+
+    def __init__(
+        self,
+        sigma: np.ndarray,
+        cutoff_freq: float = 3.0,
+        filter_order: int = 3,
+        dt: float = 0.05,
+        normalize_variance: bool = False,
+        seed: Optional[int] = None,
+    ):
+        self.sigma = np.asarray(sigma, dtype=float)
+        self.cutoff_freq = cutoff_freq
+        self.filter_order = filter_order
+        self.dt = dt
+        self.normalize_variance = normalize_variance
+        self.rng = np.random.default_rng(seed)
+
+        # SOS 필터 계수 사전 계산
+        self._sos = None
+        self._update_filter()
+
+    def _update_filter(self):
+        """Butterworth SOS 계수 갱신"""
+        nyquist = 1.0 / (2.0 * self.dt)
+        if self.cutoff_freq >= nyquist or self.cutoff_freq <= 0:
+            self._sos = None
+            return
+        from scipy.signal import butter
+        wn = self.cutoff_freq / nyquist  # 정규화 주파수 (0~1)
+        self._sos = butter(self.filter_order, wn, btype='low', output='sos')
+
+    def set_cutoff_freq(self, cutoff_freq: float):
+        """런타임 차단 주파수 변경"""
+        self.cutoff_freq = cutoff_freq
+        self._update_filter()
+
+    def set_filter_order(self, order: int):
+        """런타임 필터 차수 변경"""
+        self.filter_order = order
+        self._update_filter()
+
+    def sample(
+        self,
+        U: np.ndarray,
+        K: int,
+        control_min: Optional[np.ndarray] = None,
+        control_max: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """
+        저역통과 필터된 노이즈 샘플링
+
+        Args:
+            U: (N, nu) 명목 제어 시퀀스
+            K: 샘플 개수
+            control_min: (nu,) 제어 하한
+            control_max: (nu,) 제어 상한
+
+        Returns:
+            noise: (K, N, nu) 저역통과 필터된 노이즈
+        """
+        N, nu = U.shape
+
+        # 가우시안 노이즈 생성
+        noise = self.rng.normal(0.0, self.sigma, (K, N, nu))
+
+        # 필터 bypass 조건: SOS 없음 또는 시퀀스가 너무 짧음
+        if self._sos is not None and N > self.filter_order:
+            from scipy.signal import sosfilt
+            # axis=1 (시간축)을 따라 벡터화 필터링
+            noise = sosfilt(self._sos, noise, axis=1)
+
+            # 분산 정규화: 필터 후 std를 원래 sigma에 맞춤
+            if self.normalize_variance:
+                current_std = np.std(noise, axis=1, keepdims=True)  # (K, 1, nu)
+                current_std = np.where(current_std < 1e-10, 1.0, current_std)
+                noise = noise / current_std * self.sigma[None, None, :]
+
+        # 제어 제약 클리핑
+        if control_min is not None and control_max is not None:
+            sampled_controls = U + noise
+            sampled_controls = np.clip(sampled_controls, control_min, control_max)
+            noise = sampled_controls - U
+
+        return noise
+
+    def __repr__(self) -> str:
+        return (
+            f"LowPassSampler(sigma={self.sigma}, "
+            f"cutoff_freq={self.cutoff_freq}, "
+            f"filter_order={self.filter_order}, "
+            f"dt={self.dt})"
+        )
