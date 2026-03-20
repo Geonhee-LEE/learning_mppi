@@ -1,6 +1,6 @@
 # MPPI 심층 이론 가이드
 
-> **대상 독자**: MPPI 알고리즘의 수학적 기초와 21개 변형을 깊이 이해하고자 하는 대학원생 및 연구자
+> **대상 독자**: MPPI 알고리즘의 수학적 기초와 25개 변형을 깊이 이해하고자 하는 대학원생 및 연구자
 >
 > **구현 참조**: 모든 수식은 `mppi_controller/controllers/mppi/` 내 실제 코드와 1:1 대응
 
@@ -28,7 +28,13 @@
 18. [DBaS-MPPI (Discrete Barrier States)](#18-dbas-mppi-discrete-barrier-states)
 19. [R-MPPI (Robust MPPI)](#19-r-mppi-robust-mppi)
 20. [ASR-MPPI (Adaptive Spectral Risk)](#20-asr-mppi-adaptive-spectral-risk)
-21. [변형 선택 가이드](#21-변형-선택-가이드)
+21. [SG-MPPI (Score-Guided MPPI)](#21-sg-mppi-score-guided-mppi)
+22. [LP-MPPI (Low-Pass MPPI)](#22-lp-mppi-low-pass-mppi)
+23. [Biased-MPPI (Mixture Sampling MPPI)](#23-biased-mppi-mixture-sampling-mppi)
+24. [Residual-MPPI (사전 정책 + 잔차 최적화)](#24-residual-mppi-사전-정책--잔차-최적화)
+25. [TD-MPPI (Temporal-Difference MPPI)](#25-td-mppi-temporal-difference-mppi)
+26. [GN-MPPI (Gauss-Newton MPPI)](#26-gn-mppi-gauss-newton-mppi)
+27. [변형 선택 가이드](#27-변형-선택-가이드)
 
 ---
 
@@ -3603,7 +3609,579 @@ $$
 
 ---
 
-## 21. 변형 선택 가이드
+## 21. SG-MPPI (Score-Guided MPPI)
+
+### 21.1 동기: MPPI = Score Ascent 동치
+
+MPPI의 가중 평균 업데이트는 비용 지형의 **score ascent**와 수학적으로 동치:
+
+```
+p(U|state) ∝ exp(-S(U) / λ)           # MPPI의 암묵적 분포
+∇_U log p(U|state) = -∇_U S(U) / λ     # Score function
+```
+
+따라서 비용 지형의 gradient (= score)를 직접 학습하면,
+MPPI 샘플링을 저비용 방향으로 편향시킬 수 있다.
+
+### 21.2 Denoising Score Matching (DSM)
+
+Score function을 직접 계산하려면 정규화 상수 Z가 필요하지만,
+DSM은 Z 없이 score를 학습:
+
+```
+L(θ) = E_{U~data, σ~schedule, ε~N(0,I)} [||s_θ(U + σε, σ, state) - (-ε/σ)||²]
+```
+
+다중 σ 스케일 {σ_1, ..., σ_L} (기하 스케줄)에서 동시 학습하여
+다양한 노이즈 레벨에서의 score를 근사.
+
+### 21.3 Score-Guided Sampling
+
+표준 MPPI 가우시안 노이즈에 score bias 추가:
+
+```
+ε ~ N(0, σ²I)                           # 가우시안 노이즈
+ε_guided = ε + α · σ² · s_θ(U + ε, σ, state)  # Score-guided
+```
+
+- **α = 0**: 순수 가우시안 (Vanilla MPPI) — graceful degradation
+- **α > 0**: 저비용 방향으로 편향
+- **σ² 스케일링**: Langevin dynamics 보정 (σ가 클수록 bias 증가)
+
+### 21.4 DIAL 결합 (선택)
+
+다중 반복 + 어닐링과 자연스럽게 결합:
+
+```
+for i = 1, ..., n_guide_iters:
+    α_i = α · decay^i                    # 반복마다 α 감쇠
+    σ_i = σ · 0.5^i (if annealing)       # DIAL-style 어닐링
+    ε ~ N(0, σ_i²I)
+    ε_guided = ε + α_i · σ_i² · s_θ(U + ε, σ_i, state)
+    rollout + cost + weights → U update
+```
+
+### 21.5 기존 변형 대비 위치
+
+| 특성 | Diffusion-MPPI | Flow-MPPI | DIAL-MPPI | SG-MPPI |
+|------|---------------|-----------|-----------|---------|
+| 샘플러 | DDIM (완전 대체) | ODE Flow (완전 대체) | 어닐링 가우시안 | 가우시안 + score bias |
+| 학습 실패 시 | 가우시안 fallback | 가우시안 fallback | 영향 없음 | 순수 가우시안 |
+| 비용 지형 활용 | 간접 | 간접 | 없음 | 직접 (gradient) |
+| 학습 데이터 | 최적 U 시퀀스 | 최적 U 시퀀스 | 없음 | MPPI 가중 샘플 |
+
+### 21.6 코드 매핑
+
+```python
+# 컨트롤러
+SGMPPIController(MPPIController)
+  ├─ _sample_with_score(): ε + α·σ²·s_θ(U+ε, σ, state)
+  ├─ _compute_single_iter(): 표준 MPPI + score bias
+  ├─ _compute_multi_iter(): DIAL-style 반복 + score guidance
+  └─ _maybe_online_train(): 주기적 DSM 학습
+
+# Score Network
+ScoreNetwork(nn.Module)
+  ├─ SigmaEmbedding: sinusoidal σ 임베딩
+  └─ Zero-init 출력층: 초기 s_θ ≈ 0
+
+# 학습기
+ScoreMatchingTrainer
+  └─ _dsm_step(): L(θ) = E[||s_θ(x+σε, σ, ctx) + ε/σ||²]
+```
+
+---
+
+## 22. LP-MPPI (Low-Pass MPPI)
+
+### 22.1 동기: 주파수 도메인에서의 Smoothness
+
+MPPI 가우시안 노이즈는 전 주파수 대역에 균등한 에너지를 분배.
+물리적 구동기가 추종 불가한 고주파 제어를 생성하는 문제:
+
+```
+기존 접근법:
+  Smooth-MPPI: ΔU 샘플링 + cumsum + jerk cost  → 사후 평활
+  Colored-Noise: OU 프로세스 (시간 영역 상관)   → Python 이중 루프
+  LP-MPPI: Butterworth LPF (주파수 영역 필터링)  → 직접 스펙트럼 제어
+```
+
+### 22.2 Butterworth 저역통과 필터
+
+```
+|H(f)|² = 1 / (1 + (f/f_c)^(2n))
+
+f_c = cutoff frequency (Hz)    — 차단 주파수
+n = filter order (o_LPF)       — 필터 차수
+rolloff = -20n dB/decade       — 감쇠 기울기
+```
+
+- **f_c 제어**: 허용 주파수 대역 직접 설정 (물리적 해석 가능)
+- **n 제어**: 전환 대역 급격도 조절 (n↑ → 더 급격한 rolloff)
+- **SOS 형식**: 수치 안정성을 위해 Second-Order Sections 체인 사용
+
+### 22.3 LP-MPPI 알고리즘
+
+```
+for k = 1, ..., K:
+    ε_k ~ N(0, Σ)                          # 가우시안 노이즈 (K, N, nu)
+    ε_LP_k = ButterworthLPF(ε_k, f_c, n)   # sosfilt (axis=1, 벡터화)
+    U_k = U + ε_LP_k                       # 샘플 제어
+
+# 이후 표준 MPPI: rollout → cost → softmax weights → update
+```
+
+가중치 계산은 Vanilla MPPI와 동일. 핵심 차이는 **샘플러에만** 존재.
+
+### 22.4 기존 변형 대비
+
+| 특성 | Smooth-MPPI | Colored-Noise | LP-MPPI |
+|------|------------|---------------|---------|
+| 도메인 | 제어 공간 | 시간 영역 | 주파수 영역 |
+| 메커니즘 | ΔU + cumsum + jerk cost | OU 프로세스 | Butterworth LPF |
+| 파라미터 | jerk_weight | θ, dt | f_c, n |
+| 벡터화 | O(K) | O(K×N) 이중 루프 | O(1) scipy C |
+| 해석 가능성 | 간접 (jerk 가중치) | 간접 (복원율) | 직접 (차단 주파수 Hz) |
+
+### 22.5 코드 매핑
+
+```python
+# 샘플러
+LowPassSampler(NoiseSampler)
+  ├─ _update_filter(): scipy.signal.butter → SOS 계수
+  ├─ sample(): sosfilt(sos, noise, axis=1) — 벡터화
+  ├─ set_cutoff_freq(): 런타임 f_c 변경
+  └─ set_filter_order(): 런타임 차수 변경
+
+# 컨트롤러
+LPMPPIController(MPPIController)
+  ├─ 자동 LowPassSampler 생성 (noise_sampler=None 시)
+  ├─ compute_control(): super() + smoothness_stats
+  ├─ _compute_smoothness_stats(): MSSD + Jerk 지표
+  └─ get_smoothness_statistics(): 누적 통계
+
+# 파라미터
+LPMPPIParams(MPPIParams)
+  ├─ cutoff_freq: float = 3.0 Hz
+  ├─ filter_order: int = 3
+  └─ normalize_variance: bool = False
+```
+
+---
+
+## 23. Biased-MPPI (Mixture Sampling MPPI)
+
+**Reference**: Trevisan & Alonso-Mora, RA-L 2024, arXiv:2401.09241
+
+### 23.1 핵심 아이디어
+
+표준 MPPI는 이전 최적 해 U 주변의 **단일 가우시안 분포**에서만 샘플링한다.
+이는 로컬 비용 지형에 갇히기 쉽다 (local minima). 특히 장애물이 많거나
+다중 경로가 존재하는 환경에서 문제가 된다.
+
+**Biased-MPPI**는 J개의 **보조 정책(ancillary policy)** 샘플과
+(K-J)개의 표준 가우시안 샘플을 **혼합(mixture)**하여 탐색 다양성을 확보한다:
+
+```
+q(V) = (J/K)·q_policy(V) + ((K-J)/K)·q_gaussian(V)
+```
+
+핵심 정리 (Importance Weight Cancellation):
+혼합 분포 q(V)에서 샘플링했지만, 가중치 계산에서 **q_s가 소거**되어
+최종 가중치는 표준 MPPI와 동일한 형태를 유지한다:
+
+```
+ω(V) = (1/η) exp(-S(V)/λ)   — 표준 MPPI softmax와 동일!
+```
+
+이는 보조 정책이 **어떤 분포**에서든 자유롭게 샘플을 제안할 수 있으며,
+MPPI의 수학적 최적성이 보존됨을 의미한다.
+
+### 23.2 혼합 분포 샘플링
+
+각 제어 스텝에서 K개 샘플을 다음과 같이 구성한다:
+
+```
+V_k = Policy_j(state)    if k ∈ {1, ..., J}     ← 보조 정책 제안
+V_k = U + ε_k            if k ∈ {J+1, ..., K}   ← 표준 가우시안 탐색
+```
+
+최종 제어 입력은 **모든 샘플의 가중 평균**으로 계산한다 (일반 MPPI와 동일):
+
+```
+U_new = Σ_{k=1}^{K} ω_k · V_k
+```
+
+여기서 U_new는 U + δU가 아니라 **전체 교체(full replacement)**이다.
+보조 정책 샘플은 U 근처가 아닌 완전히 다른 영역을 제안할 수 있으므로,
+가중 평균이 더 광범위한 공간을 탐색하게 된다.
+
+### 23.3 적응적 온도 (λ) 조절
+
+ESS(Effective Sample Size)가 가중치 퇴화의 지표이므로,
+ESS 기반으로 λ를 적응적으로 조절한다:
+
+```
+ESS = 1 / Σ_k ω_k²     (유효 샘플 수)
+
+if ESS/K < η_min:       λ *= (1 + adaptation_rate)   ← 분포 평탄화
+if ESS/K > η_max:       λ *= (1 - adaptation_rate)   ← 더 집중
+```
+
+이를 통해 장애물 근처의 높은 비용 차이에서도 가중치가 한 샘플에 집중되는
+것을 방지한다.
+
+### 23.4 내장 보조 정책 (5종)
+
+Biased-MPPI는 도메인 지식을 보조 정책으로 주입한다.
+구현에서는 `AncillaryPolicy` ABC + `POLICY_REGISTRY`로 확장 가능하다:
+
+| 정책 | 키 | 전략 | 용도 |
+|------|-----|------|------|
+| **PurePursuit** | `pure_pursuit` | Lookahead 기반 레퍼런스 추적 | 기본 경로 추종 |
+| **Braking** | `braking` | 제로 제어 (비상 정지) | 위험 상황 대비 |
+| **Feedback** | `feedback` | AncillaryController 재사용 (body-frame 피드백) | 외란 보상 |
+| **MaxSpeed** | `max_speed` | 최대 v + 비례 ω | 적극적 추적 |
+| **PreviousSolution** | `previous_solution` | 이전 최적 U 재사용 (warm start) | 연속성 유지 |
+
+사용자 정의 정책도 `AncillaryPolicy`를 상속하여 자유롭게 추가 가능:
+
+```python
+@POLICY_REGISTRY.register("my_policy")
+class MyPolicy(AncillaryPolicy):
+    def generate(self, state, ref, current_U, model, params) -> np.ndarray:
+        return my_custom_control_sequence  # (N, nu)
+```
+
+### 23.5 구현 요약
+
+```python
+# 컨트롤러
+BiasedMPPIController(MPPIController)
+  ├─ compute_control(): 완전 오버라이드 (혼합 샘플링 + 가중 평균)
+  ├─ _generate_biased_samples(): 정책 J개 + 가우시안 (K-J)개 혼합
+  ├─ _compute_weights(): softmax(-S/λ) — Vanilla와 동일
+  ├─ _adapt_temperature(): ESS 기반 λ 적응
+  └─ add_policy() / remove_policy(): 런타임 정책 관리
+
+# 보조 정책
+AncillaryPolicy (ABC)
+  └─ generate(state, ref, U, model, params) -> (N, nu)
+
+POLICY_REGISTRY: 5개 내장 + 사용자 확장
+
+# 파라미터
+BiasedMPPIParams(MPPIParams)
+  ├─ biased_policies: List[str] = ["pure_pursuit", "feedback", "previous_solution"]
+  ├─ use_adaptive_lambda: bool = True
+  ├─ min_ess_ratio: float = 0.3
+  ├─ max_ess_ratio: float = 0.7
+  ├─ lambda_adaptation_rate: float = 0.1
+  └─ lookahead_distance: float = 1.0
+```
+
+### 23.6 기존 변형 대비
+
+| 특성 | Vanilla MPPI | DIAL-MPPI | Flow-MPPI | Biased-MPPI |
+|------|-------------|-----------|-----------|-------------|
+| 샘플링 분포 | 단일 가우시안 | 반복 + 감쇠 가우시안 | 학습된 Flow | 정책 혼합 + 가우시안 |
+| 다중 모드 | 불가 | 제한적 | 학습 의존 | 정책 설계로 제어 |
+| 도메인 지식 | 미사용 | 미사용 | 데이터에 암묵적 | 명시적 주입 |
+| 학습 필요 | 없음 | 없음 | 필수 (CFM) | 없음 |
+| 가중치 변경 | - | 정규화 추가 | 동일 | 동일 (q_s 소거) |
+| 추가 계산량 | 기준 | iter × K | forward pass | J개 정책 평가 |
+| local minima | 취약 | 어닐링 탈출 | 분포 사전정보 | 정책 다양성 탈출 |
+
+---
+
+## 24. Residual-MPPI (사전 정책 + 잔차 최적화)
+
+**Reference**: Wang et al., ICLR 2025, arXiv:2407.00898
+
+### 24.1 핵심 아이디어
+
+표준 MPPI는 이전 최적 해 U(보통 0으로 초기화) 주변의 가우시안에서 샘플링한다.
+이는 좋은 사전 정보(prior)가 있어도 활용하지 못한다.
+
+**Residual-MPPI**는 사전 정책 π(state, ref)의 출력을 **명목 시퀀스(nominal)**로 사용하고,
+MPPI는 **잔차(residual) δu만 최적화**한다:
+
+```
+U_nominal = π(state, ref)              # 사전 정책 출력 (N, nu)
+ε_k ~ N(0, σ²)                         # 가우시안 노이즈
+V_k = U_nominal + scale * ε_k          # 후보 제어 시퀀스
+C_aug(V_k) = C(τ_k) + ω' * ||V_k - U_nominal||²  # 증강 비용
+```
+
+### 24.2 증강 비용과 KL 페널티
+
+정책에서 벗어나는 것에 페널티를 주는 **KL 발산 항**을 비용에 추가한다:
+
+```
+C_aug(V_k) = C_task(τ_k) + kl_weight * Σ_{t=0}^{N-1} ||v_k(t) - u_nom(t)||²
+
+여기서:
+  C_task: 기존 MPPI 비용 (추적 + 제어 + 장애물 등)
+  kl_weight: KL 가중치 (정책 근처 유지 강도)
+  v_k(t): k번째 샘플의 t번째 제어
+  u_nom(t): 정책 명목 시퀀스의 t번째 제어
+```
+
+kl_weight = 0이면 정책 정보를 잃고 Vanilla MPPI로 폴백된다.
+kl_weight가 크면 정책 출력에 가까운 해를 선호한다.
+
+### 24.3 잔차 가중 업데이트
+
+표준 MPPI 가중치로 잔차를 업데이트한다:
+
+```
+w_k = softmax(-C_aug(V_k) / λ)         # 가중치 (Vanilla 동일)
+δU = Σ_k w_k * ε_k                     # 가중 잔차
+U = U_nominal + δU                      # 최종 제어 시퀀스
+```
+
+정책이 좋을수록 δU → 0으로 수렴하며, 정책이 나쁠수록
+MPPI가 큰 잔차로 보정한다.
+
+### 24.4 정책 유형
+
+Residual-MPPI는 다양한 사전 정책을 수용한다:
+
+| 정책 유형 | 설명 | 장점 | 단점 |
+|-----------|------|------|------|
+| **feedback** | PurePursuit / 피드백 제어 | 추적 성능 우수 | 장애물 미인식 |
+| **zero** | 제로 제어 | Vanilla MPPI 동일 | 사전 지식 없음 |
+| **custom** | 사용자 정의 (RL, MPC 등) | 최대 유연성 | 정책 품질 의존 |
+
+### 24.5 구현 요약
+
+```python
+# 컨트롤러
+ResidualMPPIController(MPPIController)
+  |-- compute_control(): 정책 명목 + 잔차 최적화
+  |-- _get_policy_nominal(): 정책 시퀀스 생성 (캐싱)
+  |-- set_base_policy(): 런타임 정책 변경
+  |-- get_residual_statistics(): 누적 잔차 통계
+  +-- reset(): 정책 캐시 + 잔차 이력 초기화
+
+# 파라미터
+ResidualMPPIParams(MPPIParams)
+  |-- policy_weight: float = 1.0           # 사전 정책 가중치
+  |-- use_policy_nominal: bool = True      # 정책 출력을 샘플링 중심으로
+  |-- residual_scale: float = 1.0          # 잔차 노이즈 스케일
+  |-- policy_type: str = "feedback"        # 기본 정책 유형
+  |-- policy_update_interval: int = 1      # 정책 재평가 주기
+  |-- use_augmented_cost: bool = True      # KL 페널티 활성화
+  +-- kl_weight: float = 0.1              # KL 발산 가중치
+```
+
+### 24.6 기존 변형 대비
+
+| 특성 | Vanilla MPPI | Biased-MPPI | Residual-MPPI |
+|------|-------------|-------------|---------------|
+| 명목 시퀀스 | 이전 최적 U | 이전 U + 정책 혼합 | 정책 π 출력 |
+| 샘플링 중심 | U | U (가우시안) + 정책 (혼합) | π(state) |
+| 비용 함수 | C(τ) | C(τ) | C(τ) + ω'||U-π||² |
+| 정책 역할 | 없음 | 샘플 제안 (K의 일부) | 명목 시퀀스 전체 |
+| 도메인 지식 | 없음 | 혼합 분포로 주입 | 비용으로 주입 |
+| 정책 품질 의존 | 없음 | 낮음 (일부 샘플만) | 높음 (중심 결정) |
+
+---
+
+## 25. TD-MPPI (Temporal-Difference MPPI)
+
+**Reference**: Crestaz et al., RA-L 2026, hal-05213269
+
+### 25.1 핵심 아이디어
+
+표준 MPPI는 유한 호라이즌 N 이내의 비용만 최적화한다. N 너머의 미래 비용은 무시되므로,
+**호라이즌이 짧으면 장기 영향을 고려하지 못하여 근시안적 행동**을 보인다.
+특히 복잡한 궤적이나 장기 계획이 필요한 환경에서 문제가 된다.
+
+N을 늘리면 계산량이 O(K*N)으로 선형 증가하여, 실시간 제어에서 N은 제한된다.
+
+**TD-MPPI**는 **TD(0) 학습으로 terminal value function V(x_T)를 점진적으로 학습**하여,
+짧은 롤아웃 호라이즌에서도 장기 비용을 근사한다:
+
+```
+C_total(τ) = Σ_{t=0}^{N-1} c(x_t, u_t) + w_V · V(x_T)
+```
+
+V(x_T)는 "x_T에서 시작하여 미래에 발생할 총 비용"의 근사이므로,
+N 스텝 롤아웃에 무한 호라이즌 정보가 추가된다.
+
+### 25.2 TD(0) Value Function 학습
+
+각 제어 스텝에서 실제 전이 (s, c, s')를 경험 버퍼에 저장하고,
+주기적으로 TD(0) 업데이트를 수행한다:
+
+```
+V(s) ← V(s) + α[c + γV(s') - V(s)]    (TD(0) 업데이트)
+```
+
+여기서:
+- c: 실제 1-step 비용 (근사)
+- γ: 할인율 (0.99)
+- α: 학습률 (neural network gradient descent)
+
+Value function은 MLP로 파라미터화하며, 경험 버퍼에서
+미니배치를 샘플링하여 MSE 손실로 학습한다:
+
+```
+L(θ) = E[(V_θ(s) - (c + γV_θ(s')))²]
+```
+
+### 25.3 제약 할인 (Constraint Discounting)
+
+선택적으로, 제약 위반 시 할인율을 동적으로 감소시켜
+**위반 경로의 미래 가치를 할인**한다:
+
+```
+γ_eff(t) = γ · decay^(n_violations)
+```
+
+제약 위반이 많을수록 미래 가치가 줄어들어,
+안전한 단기 행동을 선호하게 된다.
+
+### 25.4 알고리즘 흐름
+
+```
+매 스텝:
+  1. 경험 저장: (s_prev, c_prev, s_current) → buffer
+  2. TD 업데이트: buffer에서 미니배치 → V(θ) 갱신
+  3. MPPI 샘플링: K개 노이즈 → sampled controls
+  4. Rollout: 궤적 τ_k = (x_0, ..., x_N)
+  5. 비용: C_k = Σ c(x_t, u_t) + w_V · V(x_N)
+  6. 가중치: w_k = softmax(-C_k / λ)
+  7. 업데이트: U += Σ w_k · ε_k
+```
+
+### 25.5 구현 요약
+
+```python
+# 컨트롤러
+TDMPPIController(MPPIController)
+  |-- compute_control(): 표준 MPPI + V(x_T) 추가
+  |-- _compute_constraint_penalties(): 제약 할인 페널티
+  |-- get_td_statistics(): 학습 통계 반환
+  |-- reset(): 제어 시퀀스 초기화 (버퍼 유지)
+  +-- full_reset(): 전체 초기화 (버퍼 + value learner 포함)
+
+# Value Function
+ValueNetwork(nn.Module): MLP V(x) → scalar
+TDExperienceBuffer: (s, c, s') ring buffer
+TDValueLearner: TD(0) + Adam optimizer
+
+# 파라미터
+TDMPPIParams(MPPIParams)
+  |-- value_hidden_dims: [128, 128]
+  |-- td_learning_rate: 0.001
+  |-- td_gamma: 0.99
+  |-- td_buffer_size: 5000
+  |-- td_batch_size: 64
+  |-- td_update_interval: 5
+  |-- td_min_samples: 100
+  |-- use_terminal_value: True
+  |-- value_weight: 1.0
+  |-- use_constraint_discount: False
+  |-- constraint_penalty: 10.0
+  +-- discount_decay: 0.5
+```
+
+### 25.6 기존 변형 대비
+
+| 특성 | Vanilla MPPI | DIAL-MPPI | Latent-MPPI | TD-MPPI |
+|------|-------------|-----------|-------------|---------|
+| 호라이즌 | 유한 N | 유한 N (반복 보상) | 유한 N (잠재 공간) | N + V(x_T) (무한 근사) |
+| 학습 필요 | 없음 | 없음 | VAE 사전학습 | 온라인 TD (점진적) |
+| 추가 비용 | 기준 | iter × K | 디코딩 | V(x_T) 추론 |
+| 장기 계획 | N에 비례 | N에 비례 + 반복 | N에 비례 | N + 학습된 미래 |
+| Cold start | 즉시 | 즉시 | 학습 후 | 초기 = Vanilla |
+
+---
+
+## 26. GN-MPPI (Gauss-Newton MPPI)
+
+**Reference**: Homburger et al., arXiv:2512.04579
+
+### 26.1 핵심 아이디어
+
+표준 MPPI는 **1차 가중 평균 업데이트** (U ← U + Σ ω_k ε_k)로 제어를 갱신한다.
+이는 비용 지형의 **곡률(curvature) 정보를 무시**하여, 좁은 골짜기나 급격한 비용 변화 영역에서
+수렴이 느리다.
+
+**GN-MPPI**는 기존 K개 샘플의 비용+노이즈 정보로 **가우시안 스무딩 기울기**를 복원하고,
+**GGN (Generalized Gauss-Newton) 헤시안**으로 2차 뉴턴 스텝을 계산하여 수렴을 가속한다.
+
+### 26.2 수학적 배경
+
+**가우시안 스무딩 기울기** (Zeroth-Order Gradient):
+
+$$
+\nabla J \approx \frac{1}{K} \sum_{k=1}^{K} \frac{C(U + \epsilon_k) \cdot \epsilon_k}{\sigma^2}
+$$
+
+**GGN 대각 헤시안** 근사:
+
+$$
+H_{\text{diag}} \approx \frac{1}{K} \sum_{k=1}^{K} \frac{C_k^2 \cdot \epsilon_k^2}{\sigma^4} + \lambda I
+$$
+
+**뉴턴 스텝**:
+
+$$
+\delta U = -H^{-1} \nabla J
+$$
+
+**병렬 라인 서치**: 여러 스텝 크기 α ∈ {α₀, α₀·β, α₀·β², ...} 중 최적 선택.
+
+**MPPI 폴백**: GN 스텝이 표준 MPPI 업데이트보다 열등하면 MPPI 업데이트 사용.
+
+### 26.3 알고리즘
+
+```
+for iter = 1 to M:
+    1. ε_k ~ N(0, Σ),  V_k = U + ε_k           (K개 샘플)
+    2. C_k = Cost(Rollout(state, V_k))           (비용 계산)
+    3. ∇J = mean(C_centered · ε) / σ²            (기울기 복원)
+    4. H = mean(C_centered² · ε²) / σ⁴ + λI      (GGN 헤시안)
+    5. δU = -H⁻¹ · ∇J                            (뉴턴 스텝)
+    6. α* = argmin_α Cost(U + α·δU)              (라인 서치)
+    7. U_gn = U + α*·δU
+    8. U_mppi = U + Σ ω_k ε_k                    (표준 MPPI)
+    9. U ← min(U_gn, U_mppi)                     (더 좋은 것 선택)
+```
+
+### 26.4 구현
+
+```python
+GNMPPIController(MPPIController)
+    compute_control()  # 다중 반복 + GN 2차 업데이트
+    _compute_gn_step()  # 기울기 + 헤시안 → 뉴턴 방향
+    _line_search()     # 병렬 라인 서치
+    get_gn_statistics()  # GN 사용 비율, 비용 개선량
+
+GNMPPIParams(MPPIParams)
+    n_gn_iters: int = 3          # GN 반복 횟수
+    n_gn_iters_init: int = 5     # Cold start 반복
+    gn_step_size: float = 1.0    # 라인 서치 초기 스텝
+    line_search_steps: int = 5   # 라인 서치 후보 수
+    regularization: float = 1e-4 # 헤시안 정규화
+```
+
+### 26.5 기존 변형 대비
+
+| 특성 | Vanilla MPPI | DIAL-MPPI | CMA-MPPI | GN-MPPI |
+|------|-------------|-----------|----------|---------|
+| 업데이트 차수 | 1차 (가중평균) | 1차 (반복) | 1차 (공분산적응) | 2차 (뉴턴) |
+| 곡률 활용 | 없음 | 없음 | 간접적 | 직접 (헤시안) |
+| 라인 서치 | 없음 | 없음 | 없음 | 병렬 라인 서치 |
+| 폴백 안전장치 | 해당 없음 | 해당 없음 | 해당 없음 | MPPI로 폴백 |
+| 계산 비용 | K rollouts | M×K rollouts | M×K rollouts | M×(K + line_search) |
+
+---
+
+## 27. 변형 선택 가이드
 
 ### 의사결정 트리
 
@@ -3628,8 +4206,9 @@ MPPI 변형 선택
 │  └─ No ─┐
 │          │
 ├─ 매끄러운 제어가 필요한가?
-│  ├─ Yes ─┬─ 메모리 절약?      → Spline-MPPI
-│  │       └─ jerk 최소화?      → Smooth MPPI
+│  ├─ Yes ─┬─ 주파수 도메인 제어? → LP-MPPI
+│  │       ├─ 메모리 절약?       → Spline-MPPI
+│  │       └─ jerk 최소화?       → Smooth MPPI
 │  └─ No ─┐
 │          │
 ├─ 밀집 장애물 / 좁은 통로?
@@ -3641,8 +4220,14 @@ MPPI 변형 선택
 │  ├─ Yes → Risk-Aware MPPI (+ Safety 기법, SAFETY_THEORY.md 참조)
 │  └─ No ─┐
 │          │
+├─ 좋은 사전 정책이 있는가?
+│  ├─ Yes ─┬─ 정책 중심 잔차?   → Residual-MPPI
+│  │       └─ 정책 혼합 샘플?   → Biased-MPPI
+│  └─ No ─┐
+│          │
 ├─ 지역 최적 탈출?
-│  ├─ Yes ─┬─ 등방 감쇠 OK?     → DIAL-MPPI
+│  ├─ Yes ─┬─ 도메인 지식 있음? → Biased-MPPI
+│  │       ├─ 등방 감쇠 OK?     → DIAL-MPPI
 │  │       └─ 비용 지형 적응?   → CMA-MPPI
 │  └─ No ─┐
 │          │
@@ -3678,6 +4263,9 @@ MPPI 변형 선택
 │ CMA          │ ★★★   │ ★★★★★ │ ★★★★  │ ★★★★  │ ★★★   │
 │ DBaS         │ ★★★★  │ ★★★★  │ ★★★★  │ ★★★★  │ ★★★   │
 │ R-MPPI       │ ★★★   │ ★★★★  │ ★★★★★ │ ★★★   │ ★★★   │
+│ LP           │ ★★★★★ │ ★★★★  │ ★★★   │ ★★★★★ │ ★     │
+│ Biased       │ ★★★★  │ ★★★★  │ ★★★★  │ ★★★★★ │ ★★    │
+│ Residual     │ ★★★★  │ ★★★★★ │ ★★★   │ ★★★★★ │ ★★    │
 └──────────────┴────────┴────────┴────────┴────────┴────────┘
 ```
 
@@ -3691,9 +4279,10 @@ MPPI 변형 선택
 | 비대칭 장애물 | CMA | 비용 지형 적응 공분산 |
 | 밀집 장애물 / 좁은 통로 | DBaS | barrier state + 적응적 탐색 |
 | 장애물 + 안전 | Risk-Aware + Shield | CVaR + CBF 보장 |
-| 다중 경로 | Flow / SVG | 다중 모달 샘플링 |
+| 다중 경로 | Flow / SVG / Biased | 다중 모달 샘플링 / 정책 혼합 |
+| 좋은 사전 정책 보유 | Residual / Biased | 정책 중심 잔차 최적화 / 정책 혼합 |
 | 실시간 제약 | Spline / SVG | 메모리/계산 효율 |
-| 매끄러운 제어 | Smooth / Spline | 연속 제어 보장 |
+| 매끄러운 제어 | LP / Smooth / Spline | 주파수 도메인 / 연속 제어 보장 |
 | 모델 불확실성 | C2U / Uncertainty / BNN | 불확실성 인식 |
 | 정밀 추적 | Tsallis (q>1) | 활용 강화 |
 

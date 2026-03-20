@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-21종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
+27종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [환경 설정](#1-환경-설정)
 2. [기본 MPPI 제어 (기구학)](#2-기본-mppi-제어-기구학)
 3. [동역학 모델 제어](#3-동역학-모델-제어)
-4. [MPPI 변형 21종 벤치마크](#4-mppi-변형-21종-벤치마크)
+4. [MPPI 변형 25종 벤치마크](#4-mppi-변형-25종-벤치마크)
 5. [안전 제어 (CBF / Shield / Adaptive)](#5-안전-제어-cbf--shield--adaptive)
 6. [모델 학습 (NN / GP / Residual / Ensemble)](#6-모델-학습-nn--gp--residual--ensemble)
 7. [메타 학습 및 온라인 적응](#7-메타-학습-및-온라인-적응-maml--lora--ekf--l1--alpaca)
@@ -187,9 +187,9 @@ PYTHONPATH=. python examples/comparison/kinematic_vs_dynamic_demo.py --no-plot
 
 ---
 
-## 4. MPPI 변형 21종 벤치마크
+## 4. MPPI 변형 24종 벤치마크
 
-20가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
+24가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
 각 변형은 특정 문제(분포 왜곡, 위험 회피, 샘플 다양성 등)를
 해결하기 위해 설계되었습니다.
 
@@ -233,6 +233,9 @@ PYTHONPATH=. python examples/mppi_all_variants_benchmark.py --no-plot
 | 19 | **DBaS** | Barrier state 증강 + 적응적 탐색 노이즈 | 밀집 장애물 + 좁은 통로 |
 | 20 | **Robust** | 피드백 게인 + 외란 모델링 | 외란 강건성 |
 | 21 | **ASR** | Spectral Risk Measure + 적응적 왜곡 함수 | 부드러운 위험 가중 |
+| 22 | **SG** | Denoising Score Matching + score-guided 샘플링 | 비용 지형 기반 유도 |
+| 23 | **LP** | Butterworth 저역통과 필터 노이즈 | 주파수 도메인 smoothness |
+| 24 | **Biased** | 보조 정책 혼합 + 가우시안 샘플링 | 도메인 지식 기반 local minima 탈출 |
 
 ### 변형별 고유 파라미터
 
@@ -258,7 +261,7 @@ UncertaintyMPPIParams(K=1024, N=30, strategy="two_pass")
 
 ### 기대 결과
 
-- 21종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
+- 24종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
 - 궤적 비교 플롯 (각 변형의 추적 경로 오버레이)
 - Vanilla 대비 각 변형의 상대 성능 비율
 
@@ -905,6 +908,204 @@ PYTHONPATH=. python examples/comparison/spectral_risk_mppi_benchmark.py --live -
 | `distortion_gamma` | 지수 (power: q^γ) | 1.0 |
 | `use_adaptive_risk` | ESS 기반 자동 β 조절 | False |
 | `adaptation_rate` | 적응 속도 (EMA) | 0.1 |
+
+### 9.12 SG-MPPI (Score-Guided) 벤치마크
+
+Denoising Score Matching으로 비용 지형의 score function을 학습하고,
+MPPI 가우시안 노이즈에 score 방향 bias를 추가하여 저비용 영역으로 유도합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py
+
+# 장애물 시나리오 (score가 회피 방향 학습)
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --scenario obstacles
+
+# 다봉 비용 (경로 선택)
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --scenario multimodal
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/score_guided_mppi_benchmark.py --live --scenario obstacles
+```
+
+**SG-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `guidance_scale` | Score bias 강도 α | 0.5 |
+| `guidance_decay` | 다중 반복 시 α 감쇠율 | 0.95 |
+| `n_guide_iters` | Score-guided 반복 횟수 | 1 |
+| `use_annealing` | DIAL-style σ 어닐링 결합 | False |
+| `score_online_training` | 온라인 학습 활성화 | False |
+| `score_training_interval` | 학습 주기 (스텝) | 20 |
+
+### 9.13 LP-MPPI (Low-Pass) 벤치마크
+
+Butterworth 저역통과 필터를 MPPI 노이즈에 적용하여
+주파수 영역에서 직접적인 smoothness 제어. 2개 파라미터(f_c, order)로
+물리적으로 해석 가능한 제어 부드러움 달성.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/lp_mppi_benchmark.py
+
+# 장애물 시나리오 (부드러운 회피 궤적)
+PYTHONPATH=. python examples/comparison/lp_mppi_benchmark.py --scenario obstacles
+
+# 급격한 방향 전환 (figure8, smoothness vs agility)
+PYTHONPATH=. python examples/comparison/lp_mppi_benchmark.py --scenario aggressive
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/lp_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/lp_mppi_benchmark.py --live --scenario obstacles
+```
+
+**LP-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `cutoff_freq` | Butterworth 차단 주파수 (Hz) | 3.0 |
+| `filter_order` | Butterworth 필터 차수 | 3 |
+| `normalize_variance` | 필터 후 분산 정규화 | False |
+
+### 9.14 Biased-MPPI (Mixture Sampling) 벤치마크
+
+보조 정책(ancillary policy) 샘플과 가우시안 샘플을 혼합하여
+도메인 지식 기반 local minima 탈출. 학습 없이 정책 설계로 다중 모드 탐색.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/biased_mppi_benchmark.py
+
+# 장애물 시나리오 (정책 다양성 + 회피 경로)
+PYTHONPATH=. python examples/comparison/biased_mppi_benchmark.py --scenario obstacles
+
+# local minima 시나리오 (Biased 핵심 우위)
+PYTHONPATH=. python examples/comparison/biased_mppi_benchmark.py --scenario local_minima
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/biased_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/biased_mppi_benchmark.py --live --scenario obstacles
+```
+
+**Biased-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `biased_policies` | 활성 보조 정책 목록 | `["pure_pursuit", "feedback", "previous_solution"]` |
+| `use_adaptive_lambda` | ESS 기반 적응적 온도 | True |
+| `min_ess_ratio` | 최소 ESS 비율 (이하면 λ 증가) | 0.3 |
+| `max_ess_ratio` | 최대 ESS 비율 (이상이면 λ 감소) | 0.7 |
+| `lambda_adaptation_rate` | λ 적응 속도 | 0.1 |
+| `lookahead_distance` | PurePursuit lookahead 거리 (m) | 1.0 |
+
+### 9.15 Residual-MPPI (사전 정책 + 잔차 최적화) 벤치마크
+
+사전 정책(PurePursuit 등)의 출력을 명목 시퀀스로 사용하고,
+MPPI가 잔차만 최적화. KL 페널티로 정책 근처 탐색 유도.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/residual_mppi_benchmark.py
+
+# 장애물 시나리오 (잔차로 장애물 회피)
+PYTHONPATH=. python examples/comparison/residual_mppi_benchmark.py --scenario obstacles
+
+# 정책 품질 비교 (figure-8 + 장애물)
+PYTHONPATH=. python examples/comparison/residual_mppi_benchmark.py --scenario policy_quality
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/residual_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/residual_mppi_benchmark.py --live --scenario obstacles
+```
+
+**Residual-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `policy_weight` | 사전 정책 가중치 | 1.0 |
+| `use_policy_nominal` | 정책 출력을 샘플링 중심으로 | True |
+| `residual_scale` | 잔차 노이즈 스케일 | 1.0 |
+| `policy_type` | 기본 정책 유형 (feedback/zero/custom) | "feedback" |
+| `kl_weight` | KL 발산 가중치 | 0.1 |
+| `use_augmented_cost` | 증강 비용 활성화 | True |
+
+### 9.16 TD-MPPI (Temporal-Difference) 벤치마크
+
+TD 학습 terminal value function V(x_T)로 짧은 롤아웃에서도
+장기 계획 품질 유지. N=10에서 N=30급 성능 접근.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/td_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/td_mppi_benchmark.py --scenario obstacles
+
+# Short horizon 시나리오 (TD 핵심 우위)
+PYTHONPATH=. python examples/comparison/td_mppi_benchmark.py --scenario short_horizon
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/td_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/td_mppi_benchmark.py --live --scenario short_horizon
+```
+
+**TD-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `td_learning_rate` | TD 학습률 | 0.001 |
+| `td_gamma` | 할인율 | 0.99 |
+| `td_buffer_size` | 경험 버퍼 크기 | 5000 |
+| `td_update_interval` | TD 업데이트 주기 (스텝) | 5 |
+| `td_min_samples` | 최소 학습 샘플 | 100 |
+| `use_terminal_value` | terminal value 사용 여부 | True |
+| `value_weight` | V(x_T) 가중치 | 1.0 |
+
+### 9.17 GN-MPPI (Gauss-Newton) 벤치마크
+
+가우스-뉴턴 2차 업데이트로 MPPI 수렴 가속. 가우시안 스무딩 기울기 +
+GGN 헤시안으로 비용 곡률 방향 최적화. 표준 MPPI 폴백 안전장치 포함.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/gn_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/gn_mppi_benchmark.py --scenario obstacles
+
+# 수렴 속도 비교 (figure8)
+PYTHONPATH=. python examples/comparison/gn_mppi_benchmark.py --scenario convergence
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/gn_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/gn_mppi_benchmark.py --live --scenario obstacles
+```
+
+**GN-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `n_gn_iters` | GN 반복 횟수 | 3 |
+| `n_gn_iters_init` | Cold start 반복 횟수 | 5 |
+| `gn_step_size` | 라인 서치 초기 스텝 | 1.0 |
+| `line_search_steps` | 라인 서치 후보 수 | 5 |
+| `line_search_decay` | 라인 서치 감쇠율 | 0.5 |
+| `regularization` | 헤시안 정규화 | 1e-4 |
+| `use_gn_update` | GN 업데이트 사용 여부 | True |
 
 ---
 

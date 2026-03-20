@@ -933,3 +933,321 @@ class ASRMPPIParams(MPPIParams):
             "adaptation_window must be >= 1"
         assert 0 < self.min_ess_ratio <= 1, \
             "min_ess_ratio must be in (0, 1]"
+
+
+@dataclass
+class SGMPPIParams(MPPIParams):
+    """
+    SG-MPPI (Score-Guided MPPI) 전용 파라미터
+
+    Denoising Score Matching으로 비용 지형의 score function을 학습하고,
+    MPPI 가우시안 노이즈에 score 방향 bias를 추가하여 저비용 영역으로 유도.
+
+    핵심 수식:
+        s_θ(U, σ, state) ≈ ∇_U log p(U|state)
+        ε_guided = ε + α · σ² · s_θ(U + ε, σ, state)
+
+    Attributes:
+        score_hidden_dims: Score network 은닉층 차원
+        n_sigma_levels: DSM 노이즈 스케일 개수
+        sigma_min: 최소 노이즈 스케일
+        sigma_max: 최대 노이즈 스케일
+        guidance_scale: α — score bias 강도
+        guidance_decay: 다중 반복 시 α 감쇠율
+        n_guide_iters: score-guided 반복 횟수 (1=단일)
+        use_annealing: DIAL-style σ 어닐링 결합
+        score_online_training: 온라인 학습 활성화
+        score_training_interval: 학습 주기 (스텝)
+        score_min_samples: 최소 학습 샘플
+        score_buffer_size: 데이터 버퍼 크기
+        score_model_path: 사전 학습 모델 경로
+    """
+
+    # Score network
+    score_hidden_dims: List[int] = field(default_factory=lambda: [128, 128])
+    n_sigma_levels: int = 10
+    sigma_min: float = 0.01
+    sigma_max: float = 1.0
+
+    # Guidance
+    guidance_scale: float = 0.5
+    guidance_decay: float = 0.95
+
+    # Multi-iteration (DIAL 결합, 선택)
+    n_guide_iters: int = 1
+    use_annealing: bool = False
+
+    # Online learning
+    score_online_training: bool = False
+    score_training_interval: int = 20
+    score_min_samples: int = 50
+    score_buffer_size: int = 2000
+    score_model_path: Optional[str] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.n_sigma_levels >= 1, "n_sigma_levels must be >= 1"
+        assert 0 < self.sigma_min < self.sigma_max, \
+            "sigma_min must be in (0, sigma_max)"
+        assert self.guidance_scale >= 0, "guidance_scale must be non-negative"
+        assert 0 < self.guidance_decay <= 1, \
+            "guidance_decay must be in (0, 1]"
+        assert self.n_guide_iters >= 1, "n_guide_iters must be >= 1"
+        assert self.score_training_interval >= 1, \
+            "score_training_interval must be >= 1"
+        assert self.score_min_samples >= 1, \
+            "score_min_samples must be >= 1"
+        assert self.score_buffer_size >= self.score_min_samples, \
+            "score_buffer_size must be >= score_min_samples"
+
+
+@dataclass
+class LPMPPIParams(MPPIParams):
+    """
+    LP-MPPI (Low-Pass MPPI) 전용 파라미터
+
+    Butterworth 저역통과 필터를 MPPI 노이즈에 적용하여
+    주파수 영역에서 직접적인 smoothness 제어.
+
+    |H(f)|² = 1 / (1 + (f/f_c)^(2n))
+
+    Reference: Kicki et al., ICRA 2026, arXiv:2503.11717
+
+    Attributes:
+        cutoff_freq: Butterworth 차단 주파수 (Hz)
+        filter_order: Butterworth 필터 차수 (rolloff = -20n dB/decade)
+        normalize_variance: 필터링 후 분산 정규화 여부
+    """
+
+    cutoff_freq: float = 3.0
+    filter_order: int = 3
+    normalize_variance: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.cutoff_freq > 0, "cutoff_freq must be positive"
+        nyquist = 1.0 / (2.0 * self.dt)
+        assert self.cutoff_freq < nyquist, \
+            f"cutoff_freq ({self.cutoff_freq}) must be < Nyquist ({nyquist})"
+        assert 1 <= self.filter_order <= 10, \
+            "filter_order must be in [1, 10]"
+
+
+@dataclass
+class ResidualMPPIParams(MPPIParams):
+    """
+    Residual-MPPI 전용 파라미터
+
+    사전 정책(base policy)의 출력을 명목 시퀀스로 사용하고,
+    MPPI는 잔차(residual) δu만 최적화. 증강 비용으로 정책 근처에서 탐색.
+
+    U_nominal = π(state, ref)
+    U = U_nominal + Σ ω_k · ε_k
+    C_aug = C(τ) + ω' · ||U - U_nominal||²
+
+    Reference: Wang et al., ICLR 2025, arXiv:2407.00898
+
+    Attributes:
+        policy_weight: ω' — 사전 정책 log-likelihood 가중치
+        use_policy_nominal: 정책 출력을 명목 시퀀스로 사용
+        residual_scale: 잔차 노이즈 스케일
+        policy_type: 기본 정책 유형 ("feedback" | "zero" | "custom")
+        policy_update_interval: 정책 업데이트 주기
+        use_augmented_cost: 증강 비용 (정책 log-likelihood) 사용
+        kl_weight: KL 발산 가중치 (U가 정책에서 벗어나는 페널티)
+    """
+
+    policy_weight: float = 1.0
+    use_policy_nominal: bool = True
+    residual_scale: float = 1.0
+    policy_type: str = "feedback"
+    policy_update_interval: int = 1
+    use_augmented_cost: bool = True
+    kl_weight: float = 0.1
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.policy_weight >= 0, \
+            "policy_weight must be non-negative"
+        assert self.residual_scale > 0, \
+            "residual_scale must be positive"
+        assert self.kl_weight >= 0, \
+            "kl_weight must be non-negative"
+        assert self.policy_type in {"feedback", "zero", "custom"}, \
+            f"Unknown policy_type: {self.policy_type}"
+        assert self.policy_update_interval >= 1, \
+            "policy_update_interval must be >= 1"
+
+
+@dataclass
+class BiasedMPPIParams(MPPIParams):
+    """
+    Biased-MPPI (Mixture Sampling MPPI) 전용 파라미터
+
+    J개 보조 정책 제안 + (K-J)개 가우시안 샘플을 혼합하여 샘플링.
+    Importance weight에서 샘플링 분포 q_s가 소거되어
+    가중치 = softmax(-S/λ)로 동일 (Biased-MPPI 핵심 정리).
+
+    Reference: Trevisan & Alonso-Mora, RA-L 2024, arXiv:2401.09241
+
+    Attributes:
+        ancillary_types: 보조 정책 이름 리스트
+        samples_per_policy: 정책당 샘플 수
+        policy_noise_scale: 정책 제안에 추가할 노이즈 비율 (0~1)
+        use_adaptive_lambda: ESS 기반 λ 적응
+        ess_min_ratio: ESS 하한 비율 (ESS/K < min → λ 증가)
+        ess_max_ratio: ESS 상한 비율 (ESS/K > max → λ 감소)
+        lambda_increase_rate: λ 증가율
+        lambda_decrease_rate: λ 감소율
+        lambda_min: 최소 λ
+        lambda_max: 최대 λ
+        use_reward_normalization: DIAL-style 보상 정규화
+    """
+
+    ancillary_types: List[str] = field(
+        default_factory=lambda: ["pure_pursuit", "braking"]
+    )
+    samples_per_policy: int = 10
+    policy_noise_scale: float = 0.3
+    use_adaptive_lambda: bool = True
+    ess_min_ratio: float = 0.1
+    ess_max_ratio: float = 0.5
+    lambda_increase_rate: float = 1.2
+    lambda_decrease_rate: float = 0.9
+    lambda_min: float = 0.1
+    lambda_max: float = 100.0
+    use_reward_normalization: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert len(self.ancillary_types) > 0, \
+            "ancillary_types must not be empty"
+        assert self.samples_per_policy >= 1, \
+            "samples_per_policy must be >= 1"
+        assert 0 <= self.policy_noise_scale <= 1, \
+            "policy_noise_scale must be in [0, 1]"
+        assert self.ess_min_ratio < self.ess_max_ratio, \
+            "ess_min_ratio must be < ess_max_ratio"
+        total_policy_samples = len(self.ancillary_types) * self.samples_per_policy
+        assert total_policy_samples < self.K, \
+            f"total policy samples ({total_policy_samples}) must be < K ({self.K})"
+        assert self.lambda_min > 0, "lambda_min must be positive"
+        assert self.lambda_max > self.lambda_min, \
+            "lambda_max must be > lambda_min"
+        assert self.lambda_increase_rate > 1.0, \
+            "lambda_increase_rate must be > 1.0"
+        assert 0 < self.lambda_decrease_rate < 1.0, \
+            "lambda_decrease_rate must be in (0, 1.0)"
+
+
+@dataclass
+class GNMPPIParams(MPPIParams):
+    """
+    GN-MPPI (Gauss-Newton MPPI) 전용 파라미터
+
+    가우스-뉴턴 2차 업데이트로 MPPI 수렴 가속.
+    가우시안 스무딩으로 야코비안 복원 + GGN 스텝.
+
+    핵심 수식:
+        ∇J ≈ E[C(U+ε) * ε^T] * Σ^{-1}        (가우시안 스무딩 기울기)
+        H_GGN ≈ J^T * J + λI                     (GGN 헤시안 근사)
+        U_{k+1} = U_k - α * H_GGN^{-1} * ∇J     (뉴턴 스텝)
+
+    Reference: Homburger et al., arXiv:2512.04579
+
+    Attributes:
+        n_gn_iters: GN 반복 횟수
+        n_gn_iters_init: 첫 호출 GN 반복 횟수 (cold start)
+        gn_step_size: GN 스텝 크기 (line search 초기값)
+        line_search_steps: 병렬 라인 서치 후보 수
+        line_search_decay: 라인 서치 감쇠율
+        use_gn_update: True=GN 업데이트, False=표준 MPPI 폴백
+        regularization: GGN 헤시안 정규화 (특이성 방지)
+        use_reward_normalization: 보상 정규화 활성화
+    """
+
+    n_gn_iters: int = 3
+    n_gn_iters_init: int = 5
+    gn_step_size: float = 1.0
+    line_search_steps: int = 5
+    line_search_decay: float = 0.5
+    use_gn_update: bool = True
+    regularization: float = 1e-4
+    use_reward_normalization: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.n_gn_iters > 0, "n_gn_iters must be positive"
+        assert self.n_gn_iters_init > 0, "n_gn_iters_init must be positive"
+        assert self.gn_step_size > 0, "gn_step_size must be positive"
+        assert self.line_search_steps >= 1, "line_search_steps must be >= 1"
+        assert 0 < self.line_search_decay < 1, \
+            "line_search_decay must be in (0, 1)"
+        assert self.regularization >= 0, "regularization must be non-negative"
+
+
+@dataclass
+class TDMPPIParams(MPPIParams):
+    """
+    TD-MPPI (Temporal-Difference MPPI) 전용 파라미터
+
+    TD 학습 terminal value function V(x_T)로 짧은 롤아웃에서도
+    무한 수평선 추론. 제약 위반 시 할인율 동적 감소.
+
+    핵심 수식:
+        C_total(τ) = Σ_t c(x_t, u_t) + w_V · V(x_T)
+        V(x) ← V(x) + α[c + γV(x') - V(x)]    (TD(0))
+
+    Reference: Crestaz et al., RA-L 2026, hal-05213269
+
+    Attributes:
+        value_hidden_dims: Value network 은닉층 차원
+        td_learning_rate: TD 학습률
+        td_gamma: 할인율 γ ∈ (0, 1]
+        td_buffer_size: 경험 버퍼 최대 크기
+        td_batch_size: 미니배치 크기
+        td_update_interval: TD 업데이트 주기 (스텝)
+        td_min_samples: 최소 학습 샘플 수
+        use_terminal_value: terminal value V(x_T) 사용 여부
+        value_weight: V(x_T) 가중치 w_V
+        use_constraint_discount: 제약 할인 활성화
+        constraint_penalty: 제약 위반 페널티
+        discount_decay: 제약 위반 시 할인 감소율
+    """
+
+    # Value function
+    value_hidden_dims: List[int] = field(default_factory=lambda: [128, 128])
+    td_learning_rate: float = 0.001
+    td_gamma: float = 0.99
+    td_buffer_size: int = 5000
+    td_batch_size: int = 64
+    td_update_interval: int = 5
+    td_min_samples: int = 100
+    use_terminal_value: bool = True
+    value_weight: float = 1.0
+
+    # Constraint discounting
+    use_constraint_discount: bool = False
+    constraint_penalty: float = 10.0
+    discount_decay: float = 0.5
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert 0 < self.td_gamma <= 1, \
+            "td_gamma must be in (0, 1]"
+        assert self.td_learning_rate > 0, \
+            "td_learning_rate must be positive"
+        assert self.td_buffer_size > 0, \
+            "td_buffer_size must be positive"
+        assert self.td_batch_size > 0, \
+            "td_batch_size must be positive"
+        assert self.td_update_interval >= 1, \
+            "td_update_interval must be >= 1"
+        assert self.td_min_samples >= 1, \
+            "td_min_samples must be >= 1"
+        assert self.value_weight >= 0, \
+            "value_weight must be non-negative"
+        assert self.constraint_penalty >= 0, \
+            "constraint_penalty must be non-negative"
+        assert 0 < self.discount_decay <= 1, \
+            "discount_decay must be in (0, 1]"
