@@ -233,15 +233,32 @@ class SplineMPPIParams(MPPIParams):
 @dataclass
 class SVGMPPIParams(SteinVariationalMPPIParams):
     """
-    SVG-MPPI 전용 추가 파라미터
+    SVG-MPPI (Stein Variational Guided MPPI) 전용 추가 파라미터
+
+    Honda et al., ICRA 2024, arXiv:2309.11040 기반.
+    SVGD로 파티클을 최적 분포 모드로 이동 후 MPPI 가중 평균.
 
     Attributes:
-        svg_num_guide_particles: Guide particle 개수
-        svg_guide_step_size: Guide particle 스텝 크기
+        svg_num_guide_particles: Guide particle 개수 (SVGD 적용 대상)
+        svg_guide_step_size: Guide particle SVGD 스텝 크기
+        n_svgd_steps: SVGD 업데이트 반복 수
+        svgd_step_size_schedule: SVGD 스텝 크기 감쇠 ('constant' or 'decay')
+        temperature_svgd: SVGD 내부 온도 (비용 스케일링)
+        use_svgd_warm_start: 이전 SVGD 파티클 warm start
+        blend_ratio: SVGD 파티클 vs 가우시안 혼합 비율 (0=전부 가우시안, 1=전부 SVGD)
+        use_spsa_gradient: True=SPSA(빠름), False=finite diff(정확)
     """
 
     svg_num_guide_particles: int = 10
     svg_guide_step_size: float = 0.01
+
+    # Honda et al. 2024 추가 파라미터
+    n_svgd_steps: int = 5
+    svgd_step_size_schedule: str = "constant"
+    temperature_svgd: float = 1.0
+    use_svgd_warm_start: bool = True
+    blend_ratio: float = 0.5
+    use_spsa_gradient: bool = True
 
     def __post_init__(self):
         super().__post_init__()
@@ -249,6 +266,12 @@ class SVGMPPIParams(SteinVariationalMPPIParams):
             self.svg_num_guide_particles > 0
         ), "svg_num_guide_particles must be positive"
         assert self.svg_guide_step_size > 0, "svg_guide_step_size must be positive"
+        assert self.n_svgd_steps >= 0, "n_svgd_steps must be non-negative"
+        assert self.temperature_svgd > 0, "temperature_svgd must be positive"
+        assert 0.0 <= self.blend_ratio <= 1.0, "blend_ratio must be in [0, 1]"
+        assert self.svgd_step_size_schedule in (
+            "constant", "decay",
+        ), "svgd_step_size_schedule must be 'constant' or 'decay'"
 
 
 @dataclass
@@ -1251,3 +1274,204 @@ class TDMPPIParams(MPPIParams):
             "constraint_penalty must be non-negative"
         assert 0 < self.discount_decay <= 1, \
             "discount_decay must be in (0, 1]"
+
+
+@dataclass
+class ProjectionMPPIParams(MPPIParams):
+    """
+    pi-MPPI (Projection-based MPPI) 전용 파라미터
+
+    QP Projection으로 제어 입력의 크기/jerk/snap에 대한 하드 제약을 보장.
+    후처리 스무딩이 아닌 사전적(a priori) 매끄러움 보장.
+
+    제약 체계:
+        - |v_t| ≤ u_max (크기 제약, 기본 MPPI에서 상속)
+        - |v_t - v_{t-1}| / dt ≤ jerk_limit (변화율 제약)
+        - |(v_t - 2v_{t-1} + v_{t-2})| / dt² ≤ snap_limit (2차 도함수 제약)
+
+    투영 방법:
+        - "clip": 순차 클리핑 (빠름, O(K*N*nu))
+        - "qp": scipy.optimize.minimize SLSQP (정확, 느림)
+
+    Reference: Andrejev et al., RA-L 2025, arXiv:2504.10962
+
+    Attributes:
+        jerk_limit: 최대 jerk (|Δu/dt|)
+        snap_limit: 최대 snap (|Δ²u/dt²|)
+        use_jerk_constraint: jerk 제약 활성화
+        use_snap_constraint: snap 제약 활성화
+        projection_method: 투영 방법 ("clip" or "qp")
+        project_samples: 샘플 투영 여부
+        project_output: 최종 출력 투영 여부
+    """
+
+    jerk_limit: float = 5.0
+    snap_limit: float = 50.0
+    use_jerk_constraint: bool = True
+    use_snap_constraint: bool = False
+    projection_method: str = "clip"
+    project_samples: bool = True
+    project_output: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.jerk_limit > 0, \
+            "jerk_limit must be positive"
+        assert self.snap_limit > 0, \
+            "snap_limit must be positive"
+        assert self.projection_method in {"clip", "qp"}, \
+            f"Unknown projection_method: {self.projection_method}"
+        assert self.use_jerk_constraint or self.use_snap_constraint \
+            or not (self.project_samples or self.project_output), \
+            "At least one constraint must be enabled when projection is active"
+
+
+@dataclass
+class DeterministicMPPIParams(MPPIParams):
+    """
+    dsMPPI (Deterministic Sampling MPPI) 전용 파라미터
+
+    랜덤 샘플링 대신 결정론적 샘플(Halton/Sobol/Sigma Points/Grid) 사용.
+    CEM 반복 최적화와 결합하여 적은 샘플로도 효율적이고 매끄러운 제어.
+
+    핵심 수식:
+        1. 결정론적 샘플 u_k = μ + Φ^{-1}(q_k) · σ, q_k ∈ QMC sequence
+        2. CEM 반복: μ_{i+1} = (1-α)μ_i + α·mean(elite), σ 동일
+        3. 최종 MPPI 가중: u* = Σ w_k · u_k, w_k = softmax(-cost/λ)
+
+    Reference: Walker et al., arXiv:2601.03893, 2026
+
+    Attributes:
+        sampling_method: 결정론적 샘플링 방법 ("halton", "sobol", "sigma_points", "grid")
+        n_cem_iters: CEM 반복 횟수
+        n_cem_iters_init: 첫 호출 CEM 반복 (cold start)
+        elite_ratio: elite 비율 (상위 비율만 분포 업데이트에 사용)
+        cem_alpha: 분포 업데이트 EMA 계수 (0=유지, 1=완전 교체)
+        use_cem_update: CEM 분포 업데이트 활성화
+        add_random_samples: 추가 랜덤 샘플 수 (하이브리드 모드, 0=순수 결정론적)
+    """
+
+    sampling_method: str = "halton"
+    n_cem_iters: int = 3
+    n_cem_iters_init: int = 5
+    elite_ratio: float = 0.3
+    cem_alpha: float = 0.7
+    use_cem_update: bool = True
+    add_random_samples: int = 0
+
+    def __post_init__(self):
+        super().__post_init__()
+        valid_methods = ("halton", "sobol", "sigma_points", "grid")
+        assert self.sampling_method in valid_methods, \
+            f"sampling_method must be one of {valid_methods}, got '{self.sampling_method}'"
+        assert self.n_cem_iters > 0, "n_cem_iters must be positive"
+        assert self.n_cem_iters_init > 0, "n_cem_iters_init must be positive"
+        assert 0 < self.elite_ratio <= 1, "elite_ratio must be in (0, 1]"
+        assert 0 < self.cem_alpha <= 1, "cem_alpha must be in (0, 1]"
+        assert self.add_random_samples >= 0, "add_random_samples must be non-negative"
+
+
+@dataclass
+class DRPAMPPIParams(MPPIParams):
+    """
+    DRPA-MPPI (Dynamic Repulsive Potential Augmented MPPI) 전용 파라미터
+
+    Local minima trap 동적 감지 + 반발 포텐셜 자동 추가로
+    글로벌 경로 탐색 없이 반응적 탈출.
+
+    핵심 수식:
+        F_rep(x) = η · (1/d(x,o) - 1/d_0)² if d < d_0, else 0
+        C_total = C_normal + α · F_rep  (탈출 모드 시)
+
+    Reference: Fuke et al., arXiv:2503.20134, 2025
+
+    Attributes:
+        obstacles: 장애물 목록 [(x, y, radius), ...]
+        repulsive_gain: η — 반발 포텐셜 강도
+        influence_distance: d_0 — 반발 영향 범위
+        stagnation_threshold: 진행 정체 감지 임계값 (이동량)
+        stagnation_window: 정체 감지 윈도우 (스텝 수)
+        escape_boost: 탈출 모드 노이즈 증폭 계수
+        recovery_threshold: 탈출 성공 판정 임계값 (이동량)
+        use_noise_boost: 탈출 모드 시 노이즈 증폭 활성화
+    """
+
+    obstacles: List[tuple] = field(default_factory=list)
+    repulsive_gain: float = 5.0
+    influence_distance: float = 1.0
+    stagnation_threshold: float = 0.1
+    stagnation_window: int = 10
+    escape_boost: float = 2.0
+    recovery_threshold: float = 0.3
+    use_noise_boost: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.repulsive_gain >= 0, \
+            "repulsive_gain must be non-negative"
+        assert self.influence_distance > 0, \
+            "influence_distance must be positive"
+        assert self.stagnation_threshold > 0, \
+            "stagnation_threshold must be positive"
+        assert self.stagnation_window >= 2, \
+            "stagnation_window must be >= 2"
+        assert self.escape_boost >= 1.0, \
+            "escape_boost must be >= 1.0"
+        assert self.recovery_threshold > 0, \
+            "recovery_threshold must be positive"
+        # 장애물 형식 검증
+        for obs in self.obstacles:
+            assert len(obs) == 3, \
+                f"Each obstacle must be (x, y, radius), got {obs}"
+            assert obs[2] > 0, \
+                f"Obstacle radius must be positive, got {obs[2]}"
+
+
+@dataclass
+class CSCMPPIParams(MPPIParams):
+    """
+    CSC-MPPI (Constrained Sampling Cluster MPPI) 전용 파라미터
+
+    Primal-dual 투영 + DBSCAN 클러스터링으로 실행 가능한 최적 궤적 선택.
+    가중 평균 대신 클러스터 대표를 선택하여 실행 가능성 보장.
+
+    Reference: arXiv:2506.16386, 2025
+
+    Attributes:
+        obstacles: 원형 장애물 리스트 [(x, y, radius), ...]
+        safety_margin: 장애물 안전 마진 (m)
+        n_projection_steps: primal-dual 반복 수
+        projection_lr: primal 스텝 크기 (제어 업데이트율)
+        dual_lr: dual 스텝 크기 (라그랑주 승수 업데이트율)
+        dbscan_eps: DBSCAN 이웃 거리
+        dbscan_min_samples: DBSCAN 최소 클러스터 크기
+        use_projection: 제약 투영 활성화
+        use_clustering: 클러스터링 활성화
+        fallback_to_mppi: 클러스터 없을 때 표준 MPPI 폴백
+    """
+
+    obstacles: List[tuple] = field(default_factory=list)
+    safety_margin: float = 0.2
+    n_projection_steps: int = 5
+    projection_lr: float = 0.1
+    dual_lr: float = 0.01
+    dbscan_eps: float = 1.0
+    dbscan_min_samples: int = 3
+    use_projection: bool = True
+    use_clustering: bool = True
+    fallback_to_mppi: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.safety_margin >= 0, \
+            "safety_margin must be non-negative"
+        assert self.n_projection_steps >= 1, \
+            "n_projection_steps must be >= 1"
+        assert self.projection_lr > 0, \
+            "projection_lr must be positive"
+        assert self.dual_lr > 0, \
+            "dual_lr must be positive"
+        assert self.dbscan_eps > 0, \
+            "dbscan_eps must be positive"
+        assert self.dbscan_min_samples >= 1, \
+            "dbscan_min_samples must be >= 1"

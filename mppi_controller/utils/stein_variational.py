@@ -39,7 +39,7 @@ def rbf_kernel(X: np.ndarray, bandwidth: float = None) -> np.ndarray:
         sq_dists_no_diag = sq_distances[~np.eye(K, dtype=bool)]
         if len(sq_dists_no_diag) > 0:
             median_sq_dist = np.median(sq_dists_no_diag)
-            bandwidth = np.sqrt(median_sq_dist / np.log(K + 1))
+            bandwidth = np.sqrt(max(median_sq_dist, 0.0) / np.log(K + 1))
         else:
             bandwidth = 1.0
 
@@ -72,8 +72,12 @@ def rbf_kernel_with_bandwidth(X: np.ndarray) -> Tuple[np.ndarray, float]:
     sq_dists_off = sq_dists_off[sq_dists_off < np.inf]
     if len(sq_dists_off) > 0:
         median_sq_dist = np.median(sq_dists_off)
-        bandwidth = np.sqrt(median_sq_dist / np.log(K + 1))
+        bandwidth = np.sqrt(max(float(median_sq_dist), 0.0) / np.log(K + 1))
     else:
+        bandwidth = 1.0
+
+    # bandwidth가 0이면 기본값 사용 (파티클 collapse 방지)
+    if bandwidth < 1e-10:
         bandwidth = 1.0
 
     # 대각 복원 후 커널 계산
@@ -220,7 +224,7 @@ def median_bandwidth(X: np.ndarray) -> float:
     sq_dists_no_diag = sq_distances[~np.eye(K, dtype=bool)]
     if len(sq_dists_no_diag) > 0:
         median_sq_dist = np.median(sq_dists_no_diag)
-        bandwidth = np.sqrt(median_sq_dist / np.log(K + 1))
+        bandwidth = np.sqrt(max(float(median_sq_dist), 0.0) / np.log(K + 1))
     else:
         bandwidth = 1.0
 

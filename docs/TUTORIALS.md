@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-27종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
+32종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -1106,6 +1106,175 @@ PYTHONPATH=. python examples/comparison/gn_mppi_benchmark.py --live --scenario o
 | `line_search_decay` | 라인 서치 감쇠율 | 0.5 |
 | `regularization` | 헤시안 정규화 | 1e-4 |
 | `use_gn_update` | GN 업데이트 사용 여부 | True |
+
+### 9.18 SVG-MPPI (Stein Variational Guided) 벤치마크
+
+SVGD 파티클 최적화로 학습 없이 다중 모드 탐색을 수행합니다.
+RBF 커널 + median bandwidth로 샘플 간 반발력을 계산하여 분포 다양성을 유지합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/svg_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/svg_mppi_benchmark.py --scenario obstacles
+
+# 다봉 비용 (다중 경로 탐색)
+PYTHONPATH=. python examples/comparison/svg_mppi_benchmark.py --scenario multimodal
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/svg_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/svg_mppi_benchmark.py --live --scenario obstacles
+```
+
+**SVG-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `n_svgd_steps` | SVGD 반복 횟수 | 5 |
+| `svgd_step_size` | SVGD 스텝 크기 | 0.1 |
+| `temperature_svgd` | SVGD 온도 파라미터 | 1.0 |
+| `blend_ratio` | SVGD/MPPI 혼합 비율 | 0.5 |
+| `use_svgd_warm_start` | Warm start 활성화 | True |
+| `use_spsa_gradient` | SPSA 기울기 추정 사용 | True |
+
+### 9.19 pi-MPPI (Projection-based) 벤치마크
+
+QP/clip projection으로 jerk/snap 하드 제약을 보장합니다.
+LP-MPPI의 주파수 영역 필터링과 달리 시간 영역에서 직접 제약을 투영하여 smoothness를 확보합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/projection_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/projection_mppi_benchmark.py --scenario obstacles
+
+# 급격한 방향 전환 (figure8, smoothness vs agility)
+PYTHONPATH=. python examples/comparison/projection_mppi_benchmark.py --scenario aggressive
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/projection_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/projection_mppi_benchmark.py --live --scenario obstacles
+```
+
+**pi-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `jerk_limit` | Jerk 제약 상한 | 5.0 |
+| `snap_limit` | Snap 제약 상한 | 50.0 |
+| `use_jerk_constraint` | Jerk 제약 활성화 | True |
+| `use_snap_constraint` | Snap 제약 활성화 | False |
+| `projection_method` | 투영 방법 (`"clip"` \| `"qp"`) | `"clip"` |
+| `project_samples` | 샘플 단계 투영 | True |
+| `project_output` | 최종 출력 투영 | True |
+
+### 9.20 dsMPPI (Deterministic Sampling) 벤치마크
+
+결정론적 샘플링 + CEM 반복으로 유일한 비확률적 MPPI를 구현합니다.
+Halton/Sobol 준난수 시퀀스로 K=64에서도 균일 커버리지를 달성하여 샘플 효율을 극대화합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/deterministic_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/deterministic_mppi_benchmark.py --scenario obstacles
+
+# 저 샘플 시나리오 (K=64, dsMPPI 핵심 우위)
+PYTHONPATH=. python examples/comparison/deterministic_mppi_benchmark.py --scenario low_samples
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/deterministic_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/deterministic_mppi_benchmark.py --live --scenario obstacles
+```
+
+**dsMPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `sampling_method` | 샘플링 방법 (`"halton"` \| `"sobol"` \| `"latin"`) | `"halton"` |
+| `n_cem_iters` | CEM 반복 횟수 (warm start) | 3 |
+| `n_cem_iters_init` | CEM 반복 횟수 (cold start) | 5 |
+| `elite_ratio` | 상위 엘리트 비율 | 0.3 |
+| `cem_alpha` | CEM EMA 학습률 | 0.7 |
+| `add_random_samples` | 추가 랜덤 샘플 수 | 0 |
+
+### 9.21 DRPA-MPPI (Dynamic Repulsive Potential) 벤치마크
+
+반발 포텐셜 필드로 local minima를 자동 탈출합니다.
+정체 감지 로직이 progress 정지를 인식하면 탈출 부스트를 가하여
+학습 없이도 U-형 함정 등에서 빠져나옵니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/drpa_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/drpa_mppi_benchmark.py --scenario obstacles
+
+# local minima 시나리오 (DRPA 핵심 우위)
+PYTHONPATH=. python examples/comparison/drpa_mppi_benchmark.py --scenario local_minima
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/drpa_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/drpa_mppi_benchmark.py --live --scenario obstacles
+```
+
+**DRPA-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `repulsive_gain` | 반발 포텐셜 이득 | 5.0 |
+| `influence_distance` | 포텐셜 영향 거리 (m) | 1.0 |
+| `stagnation_threshold` | 정체 판단 임계값 | 0.1 |
+| `stagnation_window` | 정체 판단 윈도우 (스텝) | 10 |
+| `escape_boost` | 탈출 부스트 배율 | 2.0 |
+| `recovery_threshold` | 복귀 판단 임계값 | 0.3 |
+
+### 9.22 CSC-MPPI (Constrained Sampling Cluster) 벤치마크
+
+Primal-dual 제약 투영 + DBSCAN 클러스터링으로 실행 가능 궤적을 선택합니다.
+가중 평균 대신 클러스터별 최적 궤적을 선택하여 장애물 근처에서도 안전한 제어를 보장합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --scenario obstacles
+
+# 좁은 통로 (제약 투영 + 클러스터링 우위)
+PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --scenario narrow_passage
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --live --scenario obstacles
+```
+
+**CSC-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `safety_margin` | 안전 마진 (m) | 0.2 |
+| `n_projection_steps` | Primal-dual 투영 반복 수 | 5 |
+| `projection_lr` | 투영 학습률 | 0.1 |
+| `dual_lr` | 듀얼 변수 학습률 | 0.01 |
+| `dbscan_eps` | DBSCAN 이웃 거리 | 1.0 |
+| `dbscan_min_samples` | DBSCAN 최소 클러스터 크기 | 3 |
+| `use_projection` | 제약 투영 활성화 | True |
+| `use_clustering` | DBSCAN 클러스터링 활성화 | True |
 
 ---
 

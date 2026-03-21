@@ -87,6 +87,16 @@ from mppi_controller.controllers.mppi.ancillary_policies import (
     create_policies_from_names,
     POLICY_REGISTRY,
 )
+from mppi_controller.controllers.mppi.svg_mppi import SVGMPPIController
+from mppi_controller.controllers.mppi.mppi_params import SVGMPPIParams
+from mppi_controller.controllers.mppi.projection_mppi import ProjectionMPPIController
+from mppi_controller.controllers.mppi.mppi_params import ProjectionMPPIParams
+from mppi_controller.controllers.mppi.deterministic_mppi import DeterministicMPPIController
+from mppi_controller.controllers.mppi.mppi_params import DeterministicMPPIParams
+from mppi_controller.controllers.mppi.drpa_mppi import DRPAMPPIController
+from mppi_controller.controllers.mppi.mppi_params import DRPAMPPIParams
+from mppi_controller.controllers.mppi.csc_mppi import CSCMPPIController
+from mppi_controller.controllers.mppi.mppi_params import CSCMPPIParams
 from mppi_controller.controllers.mppi.autotune import (
     AutotuneObjective,
     AutotuneConfig,
@@ -194,4 +204,19 @@ __all__ = [
     "MPPIAutotuner",
     "OnlineSigmaAdapter",
     "AutotunedMPPIController",
+    # SVG-MPPI (Stein Variational Guided)
+    "SVGMPPIController",
+    "SVGMPPIParams",
+    # pi-MPPI (Projection-based)
+    "ProjectionMPPIController",
+    "ProjectionMPPIParams",
+    # dsMPPI (Deterministic Sampling)
+    "DeterministicMPPIController",
+    "DeterministicMPPIParams",
+    # DRPA-MPPI (Dynamic Repulsive Potential Augmented)
+    "DRPAMPPIController",
+    "DRPAMPPIParams",
+    # CSC-MPPI (Constrained Sampling Cluster)
+    "CSCMPPIController",
+    "CSCMPPIParams",
 ]
