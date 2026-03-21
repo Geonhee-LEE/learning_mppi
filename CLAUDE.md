@@ -9,8 +9,8 @@
 ## 프로젝트 개요
 
 MPPI (Model Predictive Path Integral) 기반 모바일 로봇 제어 시스템
-- 32종 MPPI 변형, 22종 안전 제어, 14종 학습 모델
-- 1351+ tests / 83+ files / ~60,000+ lines
+- 37종 MPPI 변형, 22종 안전 제어, 14종 학습 모델
+- 1793+ tests / 98+ files / ~75,000+ lines
 
 ## 인터페이스 규칙
 
@@ -108,6 +108,26 @@ PYTHONPATH=. python examples/comparison/drpa_mppi_benchmark.py --live --scenario
 # CSC-MPPI 벤치마크
 PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --all-scenarios
 PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --live --scenario obstacles
+
+# T-MPPI (Transformer) 벤치마크
+PYTHONPATH=. python examples/comparison/transformer_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/transformer_mppi_benchmark.py --live --scenario obstacles
+
+# F-MPPI (Feedback) 벤치마크
+PYTHONPATH=. python examples/comparison/feedback_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/feedback_mppi_benchmark.py --live --scenario obstacles
+
+# C-MPPI (Contingency) 벤치마크
+PYTHONPATH=. python examples/comparison/contingency_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/contingency_mppi_benchmark.py --live --scenario obstacles
+
+# DualGuard-MPPI 벤치마크
+PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py --live --scenario obstacles
+
+# PR-MPPI (Parameter-Robust) 벤치마크
+PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py --live --scenario mild_mismatch
 ```
 
 ## 데모 결과 출력 규칙
