@@ -8,7 +8,7 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 
 ## Key Features
 
-### 32 MPPI Variants
+### 37 MPPI Variants
 
 | # | Variant | Reference | Key Feature |
 |---|---------|-----------|-------------|
@@ -39,6 +39,16 @@ A comprehensive MPPI (Model Predictive Path Integral) control library featuring 
 | 25 | **Residual-MPPI** | Wang et al., 2025 | Pre-trained policy nominal + residual optimization with KL penalty |
 | 26 | **GN-MPPI** | Homburger et al., 2025 | Gauss-Newton 2nd-order update for accelerated convergence |
 | 27 | **TD-MPPI** | Crestaz et al., 2026 | TD-learned terminal value V(x_T) for short-horizon long-range planning |
+| 28 | **SVG-MPPI (SVGD)** | Honda et al., 2024 | SVGD particle optimization + Gaussian mixture + SPSA gradient |
+| 29 | **pi-MPPI** | Andrejev et al., 2025 | QP/clip projection for hard jerk/snap constraints |
+| 30 | **dsMPPI** | Walker et al., 2026 | Deterministic sampling (Halton/Sobol/sigma points) + CEM |
+| 31 | **DRPA-MPPI** | Fuke et al., 2025 | Dynamic repulsive potential for automatic local minima escape |
+| 32 | **CSC-MPPI** | arXiv:2506.16386 | Primal-dual projection + DBSCAN clustering for feasible trajectories |
+| 33 | **T-MPPI** | Zinage et al., 2024 | Transformer-based initialization learning + graceful degradation |
+| 34 | **F-MPPI** | Belvedere et al., 2026 | Riccati feedback reuse — 75%+ compute savings for high-freq control |
+| 35 | **C-MPPI** | Jung et al., 2025 | Nested contingency MPPI — emergency escape at every checkpoint |
+| 36 | **DualGuard-MPPI** | Borquez et al., 2025 | HJ safety value + TTC + dual guard (sample + nominal) |
+| 37 | **PR-MPPI** | Vahs et al., 2026 | Parameter particle filter + online Bayesian adaptation |
 
 ### 5 Robot Model Types
 
