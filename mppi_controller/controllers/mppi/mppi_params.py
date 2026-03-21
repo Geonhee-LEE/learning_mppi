@@ -1475,3 +1475,346 @@ class CSCMPPIParams(MPPIParams):
             "dbscan_eps must be positive"
         assert self.dbscan_min_samples >= 1, \
             "dbscan_min_samples must be >= 1"
+
+
+@dataclass
+class TransformerMPPIParams(MPPIParams):
+    """
+    T-MPPI (Transformer-based MPPI) 전용 파라미터
+
+    학습된 Transformer로 MPPI 초기 제어 시퀀스를 예측하여
+    샘플 효율성 향상. 과거 상태/제어 이력을 컨텍스트로 사용.
+
+    핵심 수식:
+        U_init = Transformer(state_history, control_history)
+        U* = MPPI(U_init, K_reduced)
+        Loss = MSE(U_pred, U_optimal)
+
+    Reference: Zinage et al., arXiv:2412.17118, Dec 2024
+
+    Attributes:
+        transformer_hidden_dim: Transformer 은닉 차원
+        transformer_n_heads: 멀티헤드 어텐션 헤드 수
+        transformer_n_layers: Transformer 레이어 수
+        transformer_context_length: 과거 이력 길이
+        transformer_dropout: 드롭아웃 비율
+
+        transformer_lr: 학습률
+        transformer_buffer_size: 데이터 버퍼 최대 크기
+        transformer_min_samples: 학습 시작 최소 샘플 수
+        transformer_batch_size: 미니배치 크기
+        transformer_training_interval: 학습 주기 (스텝)
+        transformer_n_train_steps: 학습 주기당 그래디언트 스텝 수
+
+        use_transformer_init: Transformer 초기화 활성화 (False면 Vanilla MPPI 폴백)
+        transformer_model_path: 사전 학습 모델 경로
+        blend_ratio: Transformer 예측과 이전 솔루션 혼합 비율 (1.0=전부 Transformer)
+        online_learning: 온라인 학습 활성화
+    """
+
+    # Transformer architecture
+    transformer_hidden_dim: int = 128
+    transformer_n_heads: int = 4
+    transformer_n_layers: int = 2
+    transformer_context_length: int = 20
+    transformer_dropout: float = 0.1
+
+    # Training
+    transformer_lr: float = 1e-3
+    transformer_buffer_size: int = 5000
+    transformer_min_samples: int = 100
+    transformer_batch_size: int = 32
+    transformer_training_interval: int = 10
+    transformer_n_train_steps: int = 5
+
+    # Mode
+    use_transformer_init: bool = True
+    transformer_model_path: Optional[str] = None
+    blend_ratio: float = 0.7
+    online_learning: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.transformer_hidden_dim > 0, \
+            "transformer_hidden_dim must be positive"
+        assert self.transformer_n_heads > 0, \
+            "transformer_n_heads must be positive"
+        assert self.transformer_hidden_dim % self.transformer_n_heads == 0, \
+            "transformer_hidden_dim must be divisible by transformer_n_heads"
+        assert self.transformer_n_layers > 0, \
+            "transformer_n_layers must be positive"
+        assert self.transformer_context_length >= 1, \
+            "transformer_context_length must be >= 1"
+        assert 0 <= self.transformer_dropout < 1, \
+            "transformer_dropout must be in [0, 1)"
+        assert self.transformer_lr > 0, \
+            "transformer_lr must be positive"
+        assert self.transformer_buffer_size > 0, \
+            "transformer_buffer_size must be positive"
+        assert self.transformer_min_samples >= 1, \
+            "transformer_min_samples must be >= 1"
+        assert self.transformer_buffer_size >= self.transformer_min_samples, \
+            "transformer_buffer_size must be >= transformer_min_samples"
+        assert self.transformer_batch_size > 0, \
+            "transformer_batch_size must be positive"
+        assert self.transformer_training_interval >= 1, \
+            "transformer_training_interval must be >= 1"
+        assert self.transformer_n_train_steps >= 1, \
+            "transformer_n_train_steps must be >= 1"
+        assert 0 <= self.blend_ratio <= 1, \
+            "blend_ratio must be in [0, 1]"
+
+
+@dataclass
+class FeedbackMPPIParams(MPPIParams):
+    """
+    Feedback-MPPI (F-MPPI) 전용 파라미터
+
+    Riccati 기반 피드백 게인으로 MPPI 해를 재사용하여
+    전체 재최적화 없이 고주파 폐루프 보정.
+
+    핵심 수식:
+        A_t = df/dx|_{x*,u*}, B_t = df/du|_{x*,u*}  (유한 차분 야코비안)
+        P_t: backward Riccati recursion → K_t 피드백 게인
+        u = u*[t] + K_t (x_actual - x*_t)            (피드백 보정)
+
+    Reference: Belvedere et al., IEEE RA-L 2026, arXiv:2506.14855
+
+    Attributes:
+        reuse_steps: MPPI 해를 피드백으로 재사용하는 스텝 수
+        jacobian_eps: 유한 차분 야코비안 epsilon
+        feedback_weight_Q: Riccati Q 스케일 (상태 비용)
+        feedback_weight_R: Riccati R 스케일 (제어 비용)
+        use_feedback: False = vanilla MPPI (매 스텝 재최적화)
+        feedback_gain_clip: 게인 클리핑 (안정성)
+        use_warm_start: 피드백 단계에서 U warm start
+    """
+
+    reuse_steps: int = 3
+    jacobian_eps: float = 1e-4
+    feedback_weight_Q: float = 10.0
+    feedback_weight_R: float = 0.1
+    use_feedback: bool = True
+    feedback_gain_clip: float = 10.0
+    use_warm_start: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.reuse_steps >= 1, \
+            "reuse_steps must be >= 1"
+        assert self.jacobian_eps > 0, \
+            "jacobian_eps must be positive"
+        assert self.feedback_weight_Q > 0, \
+            "feedback_weight_Q must be positive"
+        assert self.feedback_weight_R > 0, \
+            "feedback_weight_R must be positive"
+        assert self.feedback_gain_clip > 0, \
+            "feedback_gain_clip must be positive"
+
+
+@dataclass
+class ContingencyMPPIParams(MPPIParams):
+    """
+    C-MPPI (Contingency-Constrained MPPI) 전용 파라미터
+
+    Nested MPPI 구조: 외부 MPPI가 명목 궤적을 최적화하면서,
+    체크포인트 상태에서 내부 MPPI(contingency)가 비상 궤적의 비용을 평가.
+    모든 계획 상태에서 안전 집합 도달 가능성을 보장.
+
+    핵심 수식:
+        min_u J_nom(u) + λ_cont * max_t contingency_cost(x_t)
+        contingency_cost(x_t) = min_v cost_safe(rollout(x_t, v))
+
+    Reference: Jung, Estornell & Everett, L4DC 2025, arXiv:2412.09777
+
+    Attributes:
+        contingency_weight: λ_cont — contingency 비용 가중치
+        contingency_horizon: N_cont — 내부 MPPI 호라이즌
+        contingency_samples: K_cont — 내부 MPPI 샘플 수
+        contingency_lambda: 내부 MPPI 온도 파라미터
+        n_checkpoints: 명목 궤적 상 contingency 평가 지점 수
+        safe_cost_threshold: contingency_cost 임계값 (초과 시 큰 페널티)
+        safety_cost_weight: 안전 집합 미도달 시 페널티
+        use_braking_contingency: 제로 제어 contingency 사용
+        use_mppi_contingency: 내부 MPPI contingency 사용
+        contingency_sigma_scale: 내부 MPPI 노이즈 스케일
+    """
+
+    contingency_weight: float = 100.0
+    contingency_horizon: int = 10
+    contingency_samples: int = 32
+    contingency_lambda: float = 1.0
+    n_checkpoints: int = 3
+    safe_cost_threshold: float = 10.0
+    safety_cost_weight: float = 500.0
+    use_braking_contingency: bool = True
+    use_mppi_contingency: bool = True
+    contingency_sigma_scale: float = 1.0
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.contingency_weight >= 0, \
+            "contingency_weight must be non-negative"
+        assert self.contingency_horizon >= 1, \
+            "contingency_horizon must be >= 1"
+        assert self.contingency_samples >= 1, \
+            "contingency_samples must be >= 1"
+        assert self.contingency_lambda > 0, \
+            "contingency_lambda must be positive"
+        assert self.n_checkpoints >= 1, \
+            "n_checkpoints must be >= 1"
+        assert self.safe_cost_threshold > 0, \
+            "safe_cost_threshold must be positive"
+        assert self.safety_cost_weight >= 0, \
+            "safety_cost_weight must be non-negative"
+        assert self.contingency_sigma_scale > 0, \
+            "contingency_sigma_scale must be positive"
+        assert self.use_braking_contingency or self.use_mppi_contingency, \
+            "At least one contingency mode must be enabled"
+
+
+@dataclass
+class DualGuardMPPIParams(MPPIParams):
+    """
+    DualGuard-MPPI 전용 파라미터
+
+    Hamilton-Jacobi 도달 가능성 분석 영감의 안전 가치 함수를 MPPI에 통합.
+    사전 계산된 V(x)로 궤적 안전성 평가 + 안전하지 않은 샘플에 페널티/투영/필터.
+    Nominal + sample 이중 안전 보호 (DualGuard).
+
+    핵심 수식:
+        V(x) = min_i (||pos - o_i|| - (r_i + margin))   (signed distance)
+        V(x) >= 0  → safe
+        V(x) < 0   → unsafe
+
+        Soft:   cost_k += penalty * exp(-decay * V(x))   (V < threshold)
+        Hard:   u_k = u_k + α * ∇V(x)                   (gradient projection)
+        Filter: w_k = 0  if any V(x_t) < 0
+
+    Reference: Borquez et al., IEEE RA-L 2025, arXiv:2502.01924
+
+    Attributes:
+        obstacles: 장애물 리스트 [(x, y, radius), ...]
+        safety_margin: 추가 안전 마진 (m)
+        safety_mode: 안전 모드 ("soft" | "hard" | "filter")
+        safety_penalty: V(x) < 0 시 페널티 강도
+        safety_decay: 소프트 배리어 지수 감쇠율
+        use_velocity_penalty: 장애물 방향 이동 페널티 활성화
+        velocity_penalty_weight: 속도 페널티 가중치
+        ttc_horizon: time-to-collision 호라이즌 (초)
+        use_nominal_guard: 명목 궤적 안전 가드 활성화
+        use_sample_guard: 전체 샘플 안전 가드 활성화
+        min_safe_fraction: 최소 안전 샘플 비율 (미달 시 노이즈 증폭)
+        noise_boost_factor: 안전 샘플 부족 시 노이즈 배율
+    """
+
+    obstacles: List[tuple] = field(default_factory=list)
+    safety_margin: float = 0.2
+    safety_mode: str = "soft"
+    safety_penalty: float = 1000.0
+    safety_decay: float = 5.0
+    use_velocity_penalty: bool = True
+    velocity_penalty_weight: float = 50.0
+    ttc_horizon: float = 1.0
+    use_nominal_guard: bool = True
+    use_sample_guard: bool = True
+    min_safe_fraction: float = 0.1
+    noise_boost_factor: float = 1.5
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.safety_margin >= 0, \
+            "safety_margin must be non-negative"
+        assert self.safety_mode in {"soft", "hard", "filter"}, \
+            f"Unknown safety_mode: {self.safety_mode}"
+        assert self.safety_penalty >= 0, \
+            "safety_penalty must be non-negative"
+        assert self.safety_decay >= 0, \
+            "safety_decay must be non-negative"
+        assert self.velocity_penalty_weight >= 0, \
+            "velocity_penalty_weight must be non-negative"
+        assert self.ttc_horizon > 0, \
+            "ttc_horizon must be positive"
+        assert 0 < self.min_safe_fraction <= 1, \
+            "min_safe_fraction must be in (0, 1]"
+        assert self.noise_boost_factor >= 1.0, \
+            "noise_boost_factor must be >= 1.0"
+
+
+@dataclass
+class ParameterRobustMPPIParams(MPPIParams):
+    """
+    PR-MPPI (Parameter-Robust MPPI) 전용 파라미터
+
+    미지 파라미터에 대한 입자 기반 belief를 유지하고,
+    다수의 파라미터 가설 하에서 MPPI 비용을 평가하여
+    파라미터 불확실성에 robust한 제어 수행.
+    온라인으로 파라미터를 학습하면서 점진적으로 성능 향상.
+
+    핵심 수식:
+        θ_particles = [θ_1, ..., θ_M]
+        w_θ_i = likelihood(observation | θ_i)
+        cost_k = Σ_i w_θ_i * cost(rollout(state, u_k, model(θ_i)))  (weighted_mean)
+                 OR max_i cost(...)                                   (worst_case)
+
+    Reference: Vahs et al., 2026, arXiv:2601.02948
+
+    Attributes:
+        n_particles: 파라미터 가설 (입자) 수
+        param_name: 불확실 파라미터 이름 (모델 attribute)
+        param_nominal: 명목 파라미터 값
+        param_std: 초기 불확실성 표준편차
+        param_min: 파라미터 하한
+        param_max: 파라미터 상한
+        aggregation_mode: 비용 집계 방법 ("weighted_mean"|"worst_case"|"cvar")
+        cvar_alpha: CVaR 모드 상위 비율
+        online_learning: 온라인 파라미터 학습 활성화
+        learning_rate: 온라인 학습률
+        observation_window: 관측 히스토리 윈도우 크기
+        min_observations: 업데이트 시작 최소 관측 수
+        use_resampling: 저가중치 입자 재샘플링 활성화
+        resample_threshold: ESS/M 재샘플링 임계값
+    """
+
+    # Parameter particles
+    n_particles: int = 5
+    param_name: str = "wheelbase"
+    param_nominal: float = 0.5
+    param_std: float = 0.1
+    param_min: float = 0.2
+    param_max: float = 1.0
+
+    # Cost aggregation across particles
+    aggregation_mode: str = "weighted_mean"
+    cvar_alpha: float = 0.3
+
+    # Online learning
+    online_learning: bool = True
+    learning_rate: float = 0.01
+    observation_window: int = 5
+    min_observations: int = 3
+    use_resampling: bool = True
+    resample_threshold: float = 0.3
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.n_particles >= 1, \
+            "n_particles must be >= 1"
+        assert self.param_std > 0, \
+            "param_std must be positive"
+        assert self.param_min < self.param_max, \
+            "param_min must be < param_max"
+        assert self.param_min <= self.param_nominal <= self.param_max, \
+            "param_nominal must be in [param_min, param_max]"
+        assert self.aggregation_mode in {"weighted_mean", "worst_case", "cvar"}, \
+            f"Unknown aggregation_mode: {self.aggregation_mode}"
+        assert 0 < self.cvar_alpha <= 1, \
+            "cvar_alpha must be in (0, 1]"
+        assert self.learning_rate > 0, \
+            "learning_rate must be positive"
+        assert self.observation_window >= 1, \
+            "observation_window must be >= 1"
+        assert self.min_observations >= 1, \
+            "min_observations must be >= 1"
+        assert 0 < self.resample_threshold <= 1, \
+            "resample_threshold must be in (0, 1]"

@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-32종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
+37종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [환경 설정](#1-환경-설정)
 2. [기본 MPPI 제어 (기구학)](#2-기본-mppi-제어-기구학)
 3. [동역학 모델 제어](#3-동역학-모델-제어)
-4. [MPPI 변형 25종 벤치마크](#4-mppi-변형-25종-벤치마크)
+4. [MPPI 변형 29종 벤치마크](#4-mppi-변형-29종-벤치마크)
 5. [안전 제어 (CBF / Shield / Adaptive)](#5-안전-제어-cbf--shield--adaptive)
 6. [모델 학습 (NN / GP / Residual / Ensemble)](#6-모델-학습-nn--gp--residual--ensemble)
 7. [메타 학습 및 온라인 적응](#7-메타-학습-및-온라인-적응-maml--lora--ekf--l1--alpaca)
@@ -187,9 +187,9 @@ PYTHONPATH=. python examples/comparison/kinematic_vs_dynamic_demo.py --no-plot
 
 ---
 
-## 4. MPPI 변형 24종 벤치마크
+## 4. MPPI 변형 29종 벤치마크
 
-24가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
+29가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
 각 변형은 특정 문제(분포 왜곡, 위험 회피, 샘플 다양성 등)를
 해결하기 위해 설계되었습니다.
 
@@ -236,6 +236,11 @@ PYTHONPATH=. python examples/mppi_all_variants_benchmark.py --no-plot
 | 22 | **SG** | Denoising Score Matching + score-guided 샘플링 | 비용 지형 기반 유도 |
 | 23 | **LP** | Butterworth 저역통과 필터 노이즈 | 주파수 도메인 smoothness |
 | 24 | **Biased** | 보조 정책 혼합 + 가우시안 샘플링 | 도메인 지식 기반 local minima 탈출 |
+| 25 | **Residual** | 사전 정책 nominal + 잔차 최적화 | 사전 정보 활용 + 미세 조정 |
+| 26 | **TD** | TD-learned terminal value V(x_T) | 짧은 호라이즌에서 장기 계획 |
+| 27 | **GN** | 가우스-뉴턴 2차 업데이트 + 라인 서치 | 비용 지형 곡률 활용 정밀 최적화 |
+| 28 | **T** | Transformer 기반 초기화 학습 | 수렴 가속 + graceful degradation |
+| 29 | **F** | Riccati 피드백 재사용 (75%+ 절감) | 고주파 제어 (50Hz+) |
 
 ### 변형별 고유 파라미터
 
@@ -1275,6 +1280,228 @@ PYTHONPATH=. python examples/comparison/csc_mppi_benchmark.py --live --scenario 
 | `dbscan_min_samples` | DBSCAN 최소 클러스터 크기 | 3 |
 | `use_projection` | 제약 투영 활성화 | True |
 | `use_clustering` | DBSCAN 클러스터링 활성화 | True |
+
+### 9.23 T-MPPI (Transformer-based Initialization) 벤치마크
+
+Transformer 모델로 과거 상태/제어 히스토리로부터 근최적 초기 제어 시퀀스를 예측합니다.
+MPPI의 초기화만 개선하여 수렴 속도를 높이며, 학습 실패 시 자연스럽게 표준 MPPI로 폴백합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/transformer_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/transformer_mppi_benchmark.py --scenario obstacles
+
+# 온라인 학습 (실시간 Transformer 학습)
+PYTHONPATH=. python examples/comparison/transformer_mppi_benchmark.py --scenario online_learning
+
+# Warm start 수렴 테스트
+PYTHONPATH=. python examples/comparison/transformer_mppi_benchmark.py --scenario warm_start
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/transformer_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/transformer_mppi_benchmark.py --live --scenario obstacles
+```
+
+**T-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `use_transformer_init` | Transformer 초기화 활성화 | True |
+| `blend_ratio` | Transformer/warm-start 혼합 비율 | 0.5 |
+| `transformer_hidden_dim` | Transformer d_model | 128 |
+| `transformer_n_heads` | 어텐션 헤드 수 | 4 |
+| `transformer_n_layers` | 인코더 레이어 수 | 2 |
+| `transformer_context_length` | 히스토리 윈도우 | 20 |
+| `transformer_lr` | 학습률 | 1e-3 |
+| `online_learning` | 온라인 학습 활성화 | True |
+
+**4-Way 비교** (Vanilla vs DIAL vs Biased vs T-MPPI):
+- **A. simple**: 기준선 (장애물 없음) — Transformer 초기화 효과 측정
+- **B. obstacles**: 3개 장애물 — 비용 지형 복잡 환경에서 수렴 속도
+- **C. online_learning**: 3개 장애물 + 온라인 학습 — 실시간 학습 효과
+- **D. warm_start**: 큰 장애물 1개 — 급변 시 Transformer vs warm start 비교
+
+### 9.24 F-MPPI (Feedback Reuse) 벤치마크
+
+1회 MPPI 풀 솔브 후 Riccati 피드백 게인으로 여러 스텝을 보정합니다.
+reuse_steps=3이면 75% 계산 절감 — 고주파 제어(50Hz+)에 적합합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/feedback_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/feedback_mppi_benchmark.py --scenario obstacles
+
+# 고주파 제어 (dt=0.02, 50Hz)
+PYTHONPATH=. python examples/comparison/feedback_mppi_benchmark.py --scenario high_frequency
+
+# 외란 + 장애물
+PYTHONPATH=. python examples/comparison/feedback_mppi_benchmark.py --scenario perturbation
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/feedback_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/feedback_mppi_benchmark.py --live --scenario obstacles
+```
+
+**F-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `use_feedback` | 피드백 재사용 활성화 | True |
+| `reuse_steps` | 피드백 재사용 횟수 | 3 |
+| `jacobian_eps` | 유한 차분 ε | 1e-4 |
+| `feedback_weight_Q` | 상태 추적 비용 가중치 | 10.0 |
+| `feedback_weight_R` | 제어 비용 가중치 | 0.1 |
+| `feedback_gain_clip` | 게인 클리핑 값 | 10.0 |
+| `use_warm_start` | Warm start 유지 | True |
+
+**4-Way 비교** (Vanilla vs Tube vs Robust vs F-MPPI):
+- **A. simple**: 기준선 — full solve vs reuse 비용/성능 비교
+- **B. obstacles**: 3개 장애물 — 피드백 보정으로 장애물 회피 유지
+- **C. high_frequency**: dt=0.02 (50Hz) — 고주파에서 계산 시간 절감 효과
+- **D. perturbation**: 프로세스 노이즈 + 장애물 — 외란 하 피드백 강건성
+
+### 9.25 C-MPPI (Contingency) 벤치마크
+
+명목 궤적의 체크포인트에서 비상 계획(급정거 + 내부 MPPI)을 평가합니다.
+모든 계획 시점에서 안전한 탈출 경로가 보장되는 안전 중심 변형입니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/contingency_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/contingency_mppi_benchmark.py --scenario obstacles
+
+# 좁은 통로 (비상 탈출 계획 필수)
+PYTHONPATH=. python examples/comparison/contingency_mppi_benchmark.py --scenario narrow_passage
+
+# 밀집 위험 환경
+PYTHONPATH=. python examples/comparison/contingency_mppi_benchmark.py --scenario dynamic_risk
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/contingency_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/contingency_mppi_benchmark.py --live --scenario obstacles
+```
+
+**C-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `n_checkpoints` | 비상 평가 체크포인트 수 | 3 |
+| `contingency_weight` | 비상 비용 가중치 | 50.0 |
+| `contingency_samples` | 내부 MPPI 샘플 수 | 16 |
+| `contingency_horizon` | 비상 rollout 호라이즌 | 8 |
+| `use_braking_contingency` | 급정거 비상 활성화 | True |
+| `use_mppi_contingency` | 내부 MPPI 비상 활성화 | True |
+| `safe_cost_threshold` | 안전 페널티 임계값 | 100.0 |
+| `safety_cost_weight` | 안전 위반 페널티 가중치 | 200.0 |
+
+**4-Way 비교** (Vanilla vs CBF vs DBaS vs C-MPPI):
+- **A. simple**: 기준선 — 비상 계획 오버헤드 측정
+- **B. obstacles**: 3개 장애물 — 안전 보장 + 추적 성능
+- **C. narrow_passage**: 좁은 통로 — 비상 탈출 계획이 필수인 환경
+- **D. dynamic_risk**: 5개 밀집 장애물 — 비상 비용이 경로 선택에 미치는 영향
+
+### 9.26 DualGuard-MPPI (HJ Safety Value) 벤치마크
+
+Signed distance + TTC 기반 안전 가치 함수로 이중 가드(sample guard + nominal guard)를 적용합니다.
+soft/hard/filter 3가지 모드를 지원하며, 적응적 노이즈 부스트로 안전 샘플 비율을 유지합니다.
+
+```bash
+# 기본 벤치마크 (simple 시나리오)
+PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py
+
+# 장애물 시나리오
+PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py --scenario obstacles
+
+# 밀집 장애물 (6개, 스트레스 테스트)
+PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py --scenario dense_obstacles
+
+# 속도 인식 (빠른 속도 + 장애물)
+PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py --scenario velocity_aware
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py --live --scenario obstacles
+```
+
+**DualGuard-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `safety_margin` | 안전 마진 (m) | 0.2 |
+| `safety_mode` | 가드 모드 (soft/hard/filter) | "soft" |
+| `safety_penalty` | soft 가드 페널티 계수 | 5000.0 |
+| `safety_decay` | soft 가드 감쇠율 | 8.0 |
+| `use_velocity_penalty` | 속도 페널티 활성화 | True |
+| `velocity_penalty_weight` | 속도 페널티 가중치 | 50.0 |
+| `ttc_horizon` | TTC 호라이즌 (s) | 1.0 |
+| `use_nominal_guard` | 명목 가드 활성화 | True |
+| `min_safe_fraction` | 최소 안전 비율 | 0.1 |
+| `noise_boost_factor` | 노이즈 부스트 배율 | 1.5 |
+
+**4-Way 비교** (Vanilla vs CBF vs DBaS vs DualGuard):
+- **A. simple**: 기준선 — 가드 오버헤드 측정
+- **B. obstacles**: 3개 장애물 — MinClearance 비교 (DualGuard 우위)
+- **C. dense_obstacles**: 6개 밀집 장애물 — 이중 가드 효과 극대화
+- **D. velocity_aware**: 빠른 속도 + 장애물 — TTC 속도 인식 장점
+
+### 9.27 PR-MPPI (Parameter-Robust) 벤치마크
+
+입자 필터로 모델 파라미터 belief를 유지하고, M개 모델 가설로 동시 rollout합니다.
+파라미터 불일치(wheelbase 등)에 강건하며, 온라인 Bayesian 학습으로 파라미터를 추정합니다.
+
+```bash
+# 기본 벤치마크 (mismatch 없음)
+PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py
+
+# 약한 불일치 (wheelbase 20%)
+PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py --scenario mild_mismatch
+
+# 강한 불일치 (wheelbase 60%)
+PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py --scenario severe_mismatch
+
+# 불일치 + 장애물
+PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py --scenario mismatch_obstacles
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py --all-scenarios
+
+# 실시간 애니메이션
+PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py --live --scenario mild_mismatch
+```
+
+**PR-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `n_particles` | 파라미터 입자 수 | 8 |
+| `param_name` | 추적 파라미터 이름 | "wheelbase" |
+| `param_nominal` | 명목 파라미터 값 | (시나리오 의존) |
+| `param_std` | 초기 불확실성 표준편차 | 0.15 |
+| `aggregation_mode` | 비용 집계 모드 | "weighted_mean" |
+| `online_learning` | 온라인 파라미터 학습 | True |
+| `observation_window` | 관측 히스토리 윈도우 | 10 |
+| `use_resampling` | ESS 기반 재샘플링 | True |
+| `resample_threshold` | 재샘플링 임계값 (ESS/M) | 0.3 |
+
+**4-Way 비교** (Vanilla vs Tube vs Robust vs PR-MPPI):
+- **A. simple**: 기준선 — 불일치 없이 PR-MPPI 오버헤드 측정
+- **B. mild_mismatch**: wheelbase 0.5→0.6 (20% 불일치) — 적응 학습 효과
+- **C. severe_mismatch**: wheelbase 0.5→0.8 (60% 불일치) — RMSE 35% 개선
+- **D. mismatch_obstacles**: 불일치 + 3개 장애물 — 안전 + 강건성 동시 요구
 
 ---
 

@@ -104,6 +104,16 @@ from mppi_controller.controllers.mppi.autotune import (
     OnlineSigmaAdapter,
     AutotunedMPPIController,
 )
+from mppi_controller.controllers.mppi.transformer_mppi import TransformerMPPIController
+from mppi_controller.controllers.mppi.mppi_params import TransformerMPPIParams
+from mppi_controller.controllers.mppi.feedback_mppi import FeedbackMPPIController
+from mppi_controller.controllers.mppi.mppi_params import FeedbackMPPIParams
+from mppi_controller.controllers.mppi.contingency_mppi import ContingencyMPPIController
+from mppi_controller.controllers.mppi.mppi_params import ContingencyMPPIParams
+from mppi_controller.controllers.mppi.dualguard_mppi import DualGuardMPPIController
+from mppi_controller.controllers.mppi.mppi_params import DualGuardMPPIParams
+from mppi_controller.controllers.mppi.parameter_robust_mppi import ParameterRobustMPPIController
+from mppi_controller.controllers.mppi.mppi_params import ParameterRobustMPPIParams
 
 __all__ = [
     "ConformalCBFMPPIController",
@@ -219,4 +229,19 @@ __all__ = [
     # CSC-MPPI (Constrained Sampling Cluster)
     "CSCMPPIController",
     "CSCMPPIParams",
+    # T-MPPI (Transformer-based)
+    "TransformerMPPIController",
+    "TransformerMPPIParams",
+    # F-MPPI (Feedback)
+    "FeedbackMPPIController",
+    "FeedbackMPPIParams",
+    # C-MPPI (Contingency)
+    "ContingencyMPPIController",
+    "ContingencyMPPIParams",
+    # DualGuard-MPPI
+    "DualGuardMPPIController",
+    "DualGuardMPPIParams",
+    # PR-MPPI (Parameter-Robust)
+    "ParameterRobustMPPIController",
+    "ParameterRobustMPPIParams",
 ]
