@@ -145,6 +145,11 @@ PYTHONPATH=. python examples/comparison/rf_mppi_benchmark.py --live --scenario f
 PYTHONPATH=. python examples/comparison/step_mppi_benchmark.py --all-scenarios
 PYTHONPATH=. python examples/comparison/step_mppi_benchmark.py --live --scenario online_learning
 
+# 변형 × 모델 크로스 벤치마크 (41 variants × 6 robot models)
+PYTHONPATH=. python examples/comparison/variants_x_models_benchmark.py --scenario all
+PYTHONPATH=. python examples/comparison/variants_x_models_benchmark.py --smoke
+PYTHONPATH=. python examples/comparison/variants_x_models_benchmark.py --models diffdrive_dyn,swerve_dyn --scenario obstacles
+
 # 전체 41종 MPPI 통합 벤치마크
 PYTHONPATH=. python examples/comparison/all_37_variants_benchmark.py
 PYTHONPATH=. python examples/comparison/all_37_variants_benchmark.py --scenario obstacles
