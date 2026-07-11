@@ -1,0 +1,389 @@
+{
+  "scenario": "stochastic",
+  "name": "C. Stochastic (Strong Process Noise)",
+  "config": {
+    "K": 512,
+    "N": 20,
+    "dt": 0.05,
+    "duration": 20.0,
+    "seeds": [
+      42,
+      43,
+      44
+    ],
+    "obstacles": [
+      [
+        1.2246467991473532e-16,
+        2.0,
+        0.3
+      ],
+      [
+        -1.7320508075688772,
+        -1.0000000000000002,
+        0.3
+      ],
+      [
+        1.7320508075688767,
+        -1.0000000000000009,
+        0.3
+      ]
+    ],
+    "process_noise_std": [
+      0.05,
+      0.05,
+      0.02
+    ]
+  },
+  "methods": {
+    "Vanilla": {
+      "position_rmse": 0.7269860064468326,
+      "position_rmse_std": 0.19153062504140356,
+      "min_clearance": 0.06809839977452296,
+      "min_clearance_std": 0.01964238168065604,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 1.8077825056388974,
+      "mean_solve_time_ms_std": 0.0021268682199164107,
+      "control_rate_hz": 553.1646543270869,
+      "control_rate_hz_std": 0.6511125627685738,
+      "mean_ess": 65.00569693211268,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.8491542313311548,
+          "min_clearance": 0.051025203756070614,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.8083896394819021
+        },
+        {
+          "position_rmse": 0.8752632183092967,
+          "min_clearance": 0.09561167347838767,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.8100301921367645
+        },
+        {
+          "position_rmse": 0.45654056970004664,
+          "min_clearance": 0.05765832208911059,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.8049276852980256
+        }
+      ]
+    },
+    "CBF-MPPI": {
+      "position_rmse": 0.3828126627112673,
+      "position_rmse_std": 0.05827871495085725,
+      "min_clearance": -0.07265930776809885,
+      "min_clearance_std": 0.06237779599016518,
+      "collisions": 2.6666666666666665,
+      "collisions_std": 2.3570226039551585,
+      "mean_solve_time_ms": 1.7944041639566422,
+      "mean_solve_time_ms_std": 0.003880412615298823,
+      "control_rate_hz": 557.2906575775861,
+      "control_rate_hz_std": 1.2051545251951226,
+      "mean_ess": 87.86004118615557,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.36141260484226634,
+          "min_clearance": -0.15430205042836925,
+          "collisions": 6,
+          "mean_solve_time_ms": 1.7991541838273406
+        },
+        {
+          "position_rmse": 0.32458417021314545,
+          "min_clearance": -0.0029012628719221056,
+          "collisions": 1,
+          "mean_solve_time_ms": 1.7944091511890292
+        },
+        {
+          "position_rmse": 0.46244121307839,
+          "min_clearance": -0.06077461000400519,
+          "collisions": 1,
+          "mean_solve_time_ms": 1.7896491568535566
+        }
+      ]
+    },
+    "Shield-MPPI": {
+      "position_rmse": 2.239234094256545,
+      "position_rmse_std": 0.29420433030109955,
+      "min_clearance": 0.6082435096315814,
+      "min_clearance_std": 0.05391690553988927,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.735139966631929,
+      "mean_solve_time_ms_std": 0.014769127821371818,
+      "control_rate_hz": 365.62266180348615,
+      "control_rate_hz_std": 1.9740649378190591,
+      "mean_ess": 1.5281746291386127,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 1.9328697709464662,
+          "min_clearance": 0.6826335401939494,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.7171712554991245
+        },
+        {
+          "position_rmse": 2.636219369107347,
+          "min_clearance": 0.5855447548748733,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.753345752134919
+        },
+        {
+          "position_rmse": 2.148613142715822,
+          "min_clearance": 0.5565522338259214,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.7349028922617435
+        }
+      ]
+    },
+    "HOCBF-MPPI": {
+      "position_rmse": 1.1776562053845314,
+      "position_rmse_std": 0.24132035958779005,
+      "min_clearance": 0.041610584522286574,
+      "min_clearance_std": 0.044939719210405515,
+      "collisions": 0.6666666666666666,
+      "collisions_std": 0.9428090415820634,
+      "mean_solve_time_ms": 1.820269483141601,
+      "mean_solve_time_ms_std": 0.005561530698022455,
+      "control_rate_hz": 549.3743408534184,
+      "control_rate_hz_std": 1.6807405562158235,
+      "mean_ess": 12.938897408623577,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.8371402701175995,
+          "min_clearance": 0.06357441285444193,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.8127681175246835
+        },
+        {
+          "position_rmse": 1.367661256330107,
+          "min_clearance": -0.021019758737151173,
+          "collisions": 2,
+          "mean_solve_time_ms": 1.8219724670052528
+        },
+        {
+          "position_rmse": 1.328167089705888,
+          "min_clearance": 0.08227709944956896,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.826067864894867
+        }
+      ]
+    },
+    "HOCBF-Filter": {
+      "position_rmse": 0.9701623948040138,
+      "position_rmse_std": 0.3353091154615189,
+      "min_clearance": 0.04811401941063569,
+      "min_clearance_std": 0.07935677168566471,
+      "collisions": 3.0,
+      "collisions_std": 4.242640687119285,
+      "mean_solve_time_ms": 1.9144187914207578,
+      "mean_solve_time_ms_std": 0.022426324062066513,
+      "control_rate_hz": 522.4230275162192,
+      "control_rate_hz_std": 6.084963712721223,
+      "mean_ess": 62.64634810043977,
+      "filter_rate": 0.3475,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.7008294220262814,
+          "min_clearance": 0.057772756045996465,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.891910475678742
+        },
+        {
+          "position_rmse": 0.7668301878545606,
+          "min_clearance": 0.14011583111009973,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.906322450377047
+        },
+        {
+          "position_rmse": 1.4428275745311994,
+          "min_clearance": -0.053546528924189124,
+          "collisions": 9,
+          "mean_solve_time_ms": 1.9450234482064843
+        }
+      ]
+    },
+    "StochasticCBF-MPPI": {
+      "position_rmse": 0.4392332867275986,
+      "position_rmse_std": 0.029894660081226508,
+      "min_clearance": -0.018553687385547375,
+      "min_clearance_std": 0.05921890112602827,
+      "collisions": 1.6666666666666667,
+      "collisions_std": 1.699673171197595,
+      "mean_solve_time_ms": 1.8654804102455576,
+      "mean_solve_time_ms_std": 0.003281328296747099,
+      "control_rate_hz": 536.0566034190198,
+      "control_rate_hz_std": 0.9424424154438055,
+      "mean_ess": 78.69244322432837,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.3986750758830044,
+          "min_clearance": -0.06654663206854772,
+          "collisions": 4,
+          "mean_solve_time_ms": 1.8618159787729383
+        },
+        {
+          "position_rmse": 0.4491775142177574,
+          "min_clearance": -0.053994790039603,
+          "collisions": 1,
+          "mean_solve_time_ms": 1.8697783164680004
+        },
+        {
+          "position_rmse": 0.4698472700820339,
+          "min_clearance": 0.06488035995150859,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.8648469354957342
+        }
+      ]
+    },
+    "RiskAwareCBF-MPPI": {
+      "position_rmse": 1.996608869235206,
+      "position_rmse_std": 0.0915795367780143,
+      "min_clearance": 0.24296376581975765,
+      "min_clearance_std": 0.016283062424437045,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 1.8769823604573805,
+      "mean_solve_time_ms_std": 0.021013131697415942,
+      "control_rate_hz": 532.8369454008921,
+      "control_rate_hz_std": 5.974896741248688,
+      "mean_ess": 29.96044277261977,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 2.109935427879012,
+          "min_clearance": 0.26586554539403157,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.9016993325203657
+        },
+        {
+          "position_rmse": 1.9942414061810183,
+          "min_clearance": 0.22942995689696072,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.8789113173261285
+        },
+        {
+          "position_rmse": 1.8856497736455875,
+          "min_clearance": 0.23359579516828072,
+          "collisions": 0,
+          "mean_solve_time_ms": 1.8503364315256476
+        }
+      ]
+    },
+    "RobustCBF-MPPI": {
+      "position_rmse": 0.7052044151001549,
+      "position_rmse_std": 0.06562340156540279,
+      "min_clearance": 0.07820998258736522,
+      "min_clearance_std": 0.03865853198912551,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.2245670622214675,
+      "mean_solve_time_ms_std": 0.01441416720174878,
+      "control_rate_hz": 449.54458773106825,
+      "control_rate_hz_std": 2.919571871220775,
+      "mean_ess": 37.410531582028554,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.7886700934824702,
+          "min_clearance": 0.08416853801304514,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.2280914429575205
+        },
+        {
+          "position_rmse": 0.6986106801755558,
+          "min_clearance": 0.02816591064082352,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.2401926945894957
+        },
+        {
+          "position_rmse": 0.6283324716424384,
+          "min_clearance": 0.12229549910822701,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.2054170491173863
+        }
+      ]
+    },
+    "CLF-CBF-QP": {
+      "position_rmse": 1.3303093206981575,
+      "position_rmse_std": 0.15168411201529164,
+      "min_clearance": 0.20156141195290955,
+      "min_clearance_std": 0.04276077617108946,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 0.14718562364578247,
+      "mean_solve_time_ms_std": 0.006241097454895738,
+      "control_rate_hz": 6806.256262865177,
+      "control_rate_hz_std": 285.81230798824,
+      "mean_ess": null,
+      "filter_rate": null,
+      "qp_feasible_rate": 1.0,
+      "per_seed": [
+        {
+          "position_rmse": 1.2187661010399828,
+          "min_clearance": 0.15176332087441874,
+          "collisions": 0,
+          "mean_solve_time_ms": 0.14608746860176325
+        },
+        {
+          "position_rmse": 1.5447651684591122,
+          "min_clearance": 0.2561730568707817,
+          "collisions": 0,
+          "mean_solve_time_ms": 0.1553190592676401
+        },
+        {
+          "position_rmse": 1.2273966925953776,
+          "min_clearance": 0.19674785811352824,
+          "collisions": 0,
+          "mean_solve_time_ms": 0.14015034306794405
+        }
+      ]
+    },
+    "CBF-QP": {
+      "position_rmse": 0.5072080740830777,
+      "position_rmse_std": 0.07007214232406611,
+      "min_clearance": 0.15320068455727395,
+      "min_clearance_std": 0.02757130380194445,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 0.0942248913149039,
+      "mean_solve_time_ms_std": 0.00027723523650936913,
+      "control_rate_hz": 10612.998896890856,
+      "control_rate_hz_std": 31.264413525461865,
+      "mean_ess": null,
+      "filter_rate": null,
+      "qp_feasible_rate": 1.0,
+      "per_seed": [
+        {
+          "position_rmse": 0.4897398688904781,
+          "min_clearance": 0.17513511257016018,
+          "collisions": 0,
+          "mean_solve_time_ms": 0.09430572856217623
+        },
+        {
+          "position_rmse": 0.4314655287206771,
+          "min_clearance": 0.11431527145383841,
+          "collisions": 0,
+          "mean_solve_time_ms": 0.0938522256910801
+        },
+        {
+          "position_rmse": 0.6004188246380778,
+          "min_clearance": 0.17015166964782324,
+          "collisions": 0,
+          "mean_solve_time_ms": 0.09451671969145536
+        }
+      ]
+    }
+  }
+}

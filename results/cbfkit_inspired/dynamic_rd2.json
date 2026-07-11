@@ -1,0 +1,263 @@
+{
+  "scenario": "dynamic_rd2",
+  "name": "B. Dynamic 5D (Acceleration Control, rd=2)",
+  "config": {
+    "K": 512,
+    "N": 20,
+    "dt": 0.05,
+    "duration": 20.0,
+    "seeds": [
+      42
+    ],
+    "obstacles": [
+      [
+        1.2246467991473532e-16,
+        2.0,
+        0.3
+      ],
+      [
+        -1.7320508075688772,
+        -1.0000000000000002,
+        0.3
+      ],
+      [
+        1.7320508075688767,
+        -1.0000000000000009,
+        0.3
+      ]
+    ],
+    "process_noise_std": null
+  },
+  "methods": {
+    "Vanilla": {
+      "position_rmse": 0.997179682538063,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.19795713922174674,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.0719706825912,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 482.632311548638,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": 63.70255392446234,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.997179682538063,
+          "min_clearance": 0.19795713922174674,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.0719706825912
+        }
+      ]
+    },
+    "CBF-MPPI": {
+      "position_rmse": 0.6930184961346957,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.03937950510538124,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.0639282930642366,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 484.5129568505201,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": 97.70442768430051,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.6930184961346957,
+          "min_clearance": 0.03937950510538124,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.0639282930642366
+        }
+      ]
+    },
+    "Shield-MPPI": {
+      "position_rmse": 1.9218069999695484,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.09879728750973404,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.9900204576551914,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 334.4458722480486,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": 11.518769416899993,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 1.9218069999695484,
+          "min_clearance": 0.09879728750973404,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.9900204576551914
+        }
+      ]
+    },
+    "HOCBF-MPPI": {
+      "position_rmse": 0.7755762609908354,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.2821832337286972,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.1219970006495714,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 471.2542004978738,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": 20.010673985626457,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.7755762609908354,
+          "min_clearance": 0.2821832337286972,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.1219970006495714
+        }
+      ]
+    },
+    "HOCBF-Filter": {
+      "position_rmse": 1.1026315877492046,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.19856243570071375,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.757228850387037,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 362.68298870426673,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": 37.02827137908752,
+      "filter_rate": 0.665,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 1.1026315877492046,
+          "min_clearance": 0.19856243570071375,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.757228850387037
+        }
+      ]
+    },
+    "StochasticCBF-MPPI": {
+      "position_rmse": 0.823660131148346,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.13909964215438103,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.119385041296482,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 471.83498067357993,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": 82.5144124523753,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.823660131148346,
+          "min_clearance": 0.13909964215438103,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.119385041296482
+        }
+      ]
+    },
+    "RiskAwareCBF-MPPI": {
+      "position_rmse": 0.8217220504712923,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.07475848330698115,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.1489637158811092,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 465.34056978713767,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": 87.5069735512081,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.8217220504712923,
+          "min_clearance": 0.07475848330698115,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.1489637158811092
+        }
+      ]
+    },
+    "RobustCBF-MPPI": {
+      "position_rmse": 0.845503146135006,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.08012531890495461,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 2.4686177540570498,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 405.08499072266255,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": 82.32593597712959,
+      "filter_rate": null,
+      "qp_feasible_rate": null,
+      "per_seed": [
+        {
+          "position_rmse": 0.845503146135006,
+          "min_clearance": 0.08012531890495461,
+          "collisions": 0,
+          "mean_solve_time_ms": 2.4686177540570498
+        }
+      ]
+    },
+    "CLF-CBF-QP": {
+      "position_rmse": 1.9284365127507832,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.40809992342315465,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 0.12930699158459902,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 7733.533877367727,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": null,
+      "filter_rate": null,
+      "qp_feasible_rate": 1.0,
+      "per_seed": [
+        {
+          "position_rmse": 1.9284365127507832,
+          "min_clearance": 0.40809992342315465,
+          "collisions": 0,
+          "mean_solve_time_ms": 0.12930699158459902
+        }
+      ]
+    },
+    "CBF-QP": {
+      "position_rmse": 2.408227739618625,
+      "position_rmse_std": 0.0,
+      "min_clearance": 0.3670478981188932,
+      "min_clearance_std": 0.0,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 0.13222547713667154,
+      "mean_solve_time_ms_std": 0.0,
+      "control_rate_hz": 7562.839035675213,
+      "control_rate_hz_std": 0.0,
+      "mean_ess": null,
+      "filter_rate": null,
+      "qp_feasible_rate": 0.9975,
+      "per_seed": [
+        {
+          "position_rmse": 2.408227739618625,
+          "min_clearance": 0.3670478981188932,
+          "collisions": 0,
+          "mean_solve_time_ms": 0.13222547713667154
+        }
+      ]
+    }
+  }
+}
