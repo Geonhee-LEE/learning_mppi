@@ -1,7 +1,7 @@
 # MPPI 구현 현황
 
-**날짜**: 2026-03-14 (Updated)
-**상태**: Phase 4 + Safety + GPU + MAML + Post-MAML + 최적화 + C2U-MPPI + Flow/Diffusion/WBC-MPPI + SimulationHarness 완료 ✅
+**날짜**: 2026-04-18 (Updated)
+**상태**: Phase 4 + Safety + GPU + MAML + Post-MAML + 최적화 + C2U-MPPI + Flow/Diffusion/WBC-MPPI + SimulationHarness + Koopman-MPPI + PGD/TR/RF/Step-MPPI 완료 ✅
 
 ## 구현 완료 변형
 
@@ -137,6 +137,82 @@
   - 조작 비용: Singularity, GraspApproach, CollisionSweep 등 (6종)
   - `WBCMPPIParams(MPPIParams)`: 전용 파라미터
 
+### M38: Koopman-MPPI ✅
+- **파일**: `mppi_controller/controllers/mppi/koopman_mppi.py` (~280 LOC)
+- **특징**: Koopman 연산자 기반 선형화 동역학 + MPPI, EDMD 최소자승 피팅
+- **참고**: Koopman (1931) / Brunton et al. (2016) / Lusch et al. (2018)
+- **핵심 구성**:
+  - `KoopmanDynamics(RobotModel)`: φ(x) lifting, EDMD least-squares fitting, linear rollout (~320 LOC, `mppi_controller/models/learned/koopman_dynamics.py`)
+  - `KoopmanBatchRollout`: Koopman/fallback 자동 전환
+  - `KoopmanMPPIController(MPPIController)`: 미학습→fallback, 학습→선형 rollout
+  - `KoopmanTrainer`: 데이터 수집 + EDMD fitting
+  - `KoopmanMPPIParams(MPPIParams)`: 전용 파라미터 (`mppi_params.py`)
+- **특징 함수**: RBF / Poly / Identity 지원, 온라인 재학습, 버퍼 관리
+- **성능**: rollout 0.4-0.7ms (Vanilla 1.1ms), **40% 가속**
+- **테스트**: `tests/test_koopman_mppi.py` (50 tests)
+- **벤치마크**: `examples/comparison/koopman_mppi_benchmark.py`
+
+### M40: PGD-MPPI ✅
+- **파일**: `mppi_controller/controllers/mppi/pgd_mppi.py`
+- **특징**: MPPI를 KL 정규화 자유에너지 F(μ)=-λ log E_q[exp(-S/λ)]의 전처리 경사 하강으로 재해석
+- **참고**: arXiv:2603.24489, "MPPI Control as Preconditioned Gradient Descent" (2026)
+- **핵심 구성**:
+  - `PGDMPPIController(MPPIController)`: n_grad_steps 전처리 경사 업데이트 (μ ← μ + α·Σ w_i ε_i)
+  - `_adapt_covariance()`: Gibbs-tilted 경험 공분산 → σ_scale EMA 적응
+  - `PGDMPPIParams(MPPIParams)`: 전용 파라미터 (`mppi_params.py`)
+- **수학**: 고정 공분산 가우시안에서 표준 MPPI = unit-step(α=1) 전처리 경사 스텝
+- **일반화**: 스텝 크기 α(step_size), 다중 경사 스텝(n_grad_steps), 공분산 전처리(adapt_covariance)
+- **graceful superset**: 기본값(step_size=1.0, n_grad_steps=1, adapt_covariance=False)에서 Vanilla와 동일
+- **info**: `info["pgd_stats"]` (grad_norm, sigma_scale)
+- **테스트**: `tests/test_pgd_mppi.py`
+- **벤치마크**: `examples/comparison/pgd_mppi_benchmark.py`
+
+### M41: TR-MPPI ✅
+- **파일**: `mppi_controller/controllers/mppi/tr_mppi.py`
+- **특징**: 신뢰 영역(trust region) 프레임 — proposal 평균 업데이트를 KL 경계 δ로 제약
+- **참고**: arXiv:2605.07801, "Sampling-based MPC Using Trust Regions" (2026)
+- **핵심 구성**:
+  - `TRMPPIController(MPPIController)`: n_iters 신뢰 영역 업데이트 + 엔트로피 하한
+  - `HaltonLCDSampler(NoiseSampler)`: Halton 저불일치 수열 + 역정규 CDF 결정론적 LCD 샘플링
+  - `TRMPPIParams(MPPIParams)`: 전용 파라미터 (`mppi_params.py`)
+- **수학**: KL=½Σ‖Δμ/σ‖²; KL>δ이면 Δμ ← Δμ·sqrt(δ/KL) (신뢰 영역 투영)
+- **안정성**: 공분산 엔트로피 하한(σ≥entropy_floor_scale·σ_base)으로 조기 붕괴 방지
+- **info**: `info["tr_stats"]` (kl_divergence, step_scaled, deterministic, sigma_scale)
+- **테스트**: `tests/test_tr_mppi.py`
+- **벤치마크**: `examples/comparison/tr_mppi_benchmark.py`
+
+### M42: RF-MPPI ✅
+- **파일**: `mppi_controller/controllers/mppi/rf_mppi.py`
+- **특징**: 제어 시퀀스를 저차원 큐빅 Hermite 스플라인(dual-space: 위치+속도)으로 파라미터화
+- **참고**: arXiv:2511.19204, "Reference-Free Sampling-Based MPC" (2026)
+- **핵심 구성**:
+  - `RFMPPIController(MPPIController)`: knot 공간 섭동 → Hermite 보간 → MPPI → warm-shift
+  - `HermiteSplineSampler`: B_p, B_v 기저 사전 계산, U=B_p@P+B_v@V 벡터화 재구성
+  - `RFMPPIParams(MPPIParams)`: 전용 파라미터 (`mppi_params.py`)
+- **수학**: Hermite 기저 h00=2s³-3s²+1, h10=s³-2s²+s, h01=-2s³+3s², h11=s³-s²
+- **매끄러움 구조적 보장**: 소수 샘플(K≈32~64)로도 높은 ESS·낮은 jerk·CPU 실시간
+- **실측**: K=24 few-sample에서 RF-dual MSSD가 Vanilla 대비 ~13배 매끄럽고 RMSE 1.83→0.32
+- **info**: `info["rf_stats"]` (n_knots, dual_space, knot_pos/vel_norm)
+- **테스트**: `tests/test_rf_mppi.py`
+- **벤치마크**: `examples/comparison/rf_mppi_benchmark.py`
+
+### M43: Step-MPPI ✅
+- **파일**: `mppi_controller/controllers/mppi/step_mppi.py`
+- **특징**: 신경망이 MPPI proposal 분포(평균 잔차 Δμ_θ + 대각 공분산 logσ_θ)를 학습
+- **참고**: arXiv:2604.01539, "Single-Step MPPI via Differentiable Predictive Control" (2026)
+- **핵심 구성**:
+  - `StepMPPIController(MPPIController)`: 특징 φ → proposal → 단일 스텝 최적화 → 자기지도 학습
+  - `ProposalNetwork(nn.Module)`: zero-init 출력 (mean_head + logstd_head)
+  - `ProposalTrainer` / `StepExperienceBuffer`: MSE 잔차 − entropy_weight·Σlogσ (최대 엔트로피)
+  - `StepMPPIParams(MPPIParams)`: 전용 파라미터 (`mppi_params.py`)
+- **특징**: φ=[state, ref[1]-state, ref[-1]-state]; μ=U_warm+blend·Δμ_θ, σ_eff=σ_base·exp(logσ_θ)
+- **장기→단일 스텝**: 장기 호라이즌 MPC 목적을 학습 시점 주입 → 단일 스텝 lookahead로 장기 계획 활용 (DPC)
+- **graceful degradation**: 출력층 zero-init → 학습 전 Vanilla, torch 부재 시에도 동작
+- **T-MPPI와 차이**: 초기화만(T) vs 평균+공분산 함께 출력 + 최대 엔트로피 DPC(Step)
+- **info**: `info["step_stats"]` (use_net, proposal_delta_norm, sigma_eff, train_count)
+- **테스트**: `tests/test_step_mppi.py`
+- **벤치마크**: `examples/comparison/step_mppi_benchmark.py`
+
 ## Phase 4: 학습 모델 고도화 ✅
 
 ### M3.6a: Neural Dynamics ✅
@@ -206,6 +282,11 @@
 | **Flow-MPPI** | - | - | CFM 다중 모달 | 복잡 분포 학습 |
 | **Diffusion-MPPI** | - | - | DDPM/DDIM 역확산 | 생성 모델 샘플링 |
 | **WBC-MPPI** | - | - | 베이스+팔 통합 | 모바일 매니퓰레이터 |
+| **Koopman-MPPI** | - | 0.4-0.7 | Koopman 선형 rollout | 고속 rollout (40% 가속) |
+| **PGD-MPPI** | - | - | 전처리 경사 하강 | 다중 스텝/공분산 적응 |
+| **TR-MPPI** | - | - | 신뢰 영역 KL 제약 | 안정적 단조 수렴 |
+| **RF-MPPI** | - | - | Hermite 스플라인 (dual) | few-sample 매끄러움 (CPU) |
+| **Step-MPPI** | - | - | 학습 proposal (DPC) | 단일 스텝 초저지연 |
 
 ### 학습 모델 성능
 
@@ -241,10 +322,15 @@ tests/
 ├── test_smooth_mppi.py                 ✅ Smooth MPPI (5 tests)
 ├── test_stein_variational_mppi.py      ✅ SVMPC (6 tests)
 ├── test_spline_mppi.py                 ✅ Spline-MPPI (6 tests)
-└── test_svg_mppi.py                    ✅ SVG-MPPI (6 tests)
+├── test_svg_mppi.py                    ✅ SVG-MPPI (6 tests)
+├── test_koopman_mppi.py                ✅ Koopman-MPPI (50 tests)
+├── test_pgd_mppi.py                    ✅ PGD-MPPI (40th)
+├── test_tr_mppi.py                     ✅ TR-MPPI (41st)
+├── test_rf_mppi.py                     ✅ RF-MPPI (42nd)
+└── test_step_mppi.py                   ✅ Step-MPPI (43rd)
 ```
 
-**MPPI 테스트**: 43개 ✅ All Passing
+**MPPI 테스트**: 93개 ✅ All Passing
 
 ### 학습 모델 테스트
 
@@ -258,7 +344,7 @@ tests/
 
 **학습 모델 테스트**: 5개 ✅ All Passing
 
-**총 테스트**: 48개 ✅ All Passing
+**총 테스트**: 98개 ✅ All Passing
 
 ## 모델별 비교 데모
 
@@ -311,6 +397,17 @@ f9052de - feat: add Tube-MPPI with ancillary controller
 - Kim et al. (2021) - "Smooth MPPI"
 - Bhardwaj et al. (2024) - "Spline-MPPI"
 - Kondo et al. (2024) - "SVG-MPPI"
+
+### M38 Koopman-MPPI
+- Koopman (1931) - "Hamiltonian Systems and Transformation in Hilbert Space"
+- Brunton et al. (2016) - "Discovering Governing Equations from Data"
+- Lusch et al. (2018) - "Deep Learning for Universal Linear Embeddings of Nonlinear Dynamics"
+
+### M40-M43 PGD / TR / RF / Step-MPPI
+- arXiv:2603.24489 (2026) - "MPPI Control as Preconditioned Gradient Descent" (PGD-MPPI)
+- arXiv:2605.07801 (2026) - "Sampling-based MPC Using Trust Regions" (TR-MPPI)
+- arXiv:2511.19204 (2026) - "Reference-Free Sampling-Based MPC" (RF-MPPI)
+- arXiv:2604.01539 (2026) - "Single-Step MPPI via Differentiable Predictive Control" (Step-MPPI)
 
 ## Safety-Critical Control (8종 + Neural CBF) ✅
 
@@ -451,6 +548,8 @@ L_grad    = mean((||∂h/∂x|| - 1)²)  at boundary
   - `--all-scenarios`: 전체 실행
 - `examples/comparison/c2u_mppi_analysis.py`: **C2U-MPPI 심층 6-Way 분석**
   - 장애물 근접도별, 노이즈 sweep, 모델 불일치, Figure-8, 파라미터 민감도, 공분산 시각화
+- `examples/comparison/koopman_mppi_benchmark.py`: **Koopman-MPPI 벤치마크**
+  - Koopman 선형 rollout vs Vanilla MPPI 비교, RBF/Poly/Identity 특징 함수
 
 ## 다음 단계 (M4)
 
@@ -465,10 +564,10 @@ L_grad    = mean((||∂h/∂x|| - 1)²)  at boundary
 
 ## 통계
 
-- **총 코드 라인**: ~47,000+ 라인
-- **최종 업데이트**: 2026-03-14
-- **테스트**: 1100개 (72 파일, 모두 통과 ✅)
-- **MPPI 변형**: 15개 ✅ (Vanilla/Tube/Log/Tsallis/Risk/Smooth/Spline/SVG/SVMPC/DIAL/Uncertainty/C2U/Flow/Diffusion/WBC)
+- **총 코드 라인**: ~86,000+ 라인
+- **최종 업데이트**: 2026-04-18
+- **테스트**: 1843개 (103+ 파일, 모두 통과 ✅)
+- **MPPI 변형**: 43개 ✅ (Vanilla/Tube/Log/Tsallis/Risk/Smooth/Spline/SVG/SVMPC/DIAL/Uncertainty/C2U/Flow/Diffusion/WBC + 23종 추가 변형 + Koopman + PGD/TR/RF/Step)
 - **안전 제어**: 22개 ✅ (CBF/Shield/Adaptive/Gatekeeper/MPS/DIAL/Conformal/Neural-CBF 등)
 - **학습 모델**: 12개 ✅ (Neural/GP/Residual/Ensemble/MC-Dropout/MAML/EKF/L1/ALPaCA/LoRA/CP/Neural-CBF)
 - **로봇 모델**: 5개 ✅ (DiffDrive/Ackermann/Swerve × Kinematic/Dynamic)

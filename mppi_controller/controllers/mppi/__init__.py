@@ -114,6 +114,34 @@ from mppi_controller.controllers.mppi.dualguard_mppi import DualGuardMPPIControl
 from mppi_controller.controllers.mppi.mppi_params import DualGuardMPPIParams
 from mppi_controller.controllers.mppi.parameter_robust_mppi import ParameterRobustMPPIController
 from mppi_controller.controllers.mppi.mppi_params import ParameterRobustMPPIParams
+from mppi_controller.controllers.mppi.koopman_mppi import (
+    KoopmanMPPIController,
+    KoopmanBatchRollout,
+)
+from mppi_controller.controllers.mppi.mppi_params import KoopmanMPPIParams
+from mppi_controller.controllers.mppi.world_model_mppi import (
+    WorldModelMPPIController,
+    WorldModelMPPIParams,
+)
+# ICRA/IROS 2026 신규 변형 (40~43번째)
+from mppi_controller.controllers.mppi.pgd_mppi import PGDMPPIController
+from mppi_controller.controllers.mppi.tr_mppi import TRMPPIController, HaltonLCDSampler
+from mppi_controller.controllers.mppi.rf_mppi import (
+    RFMPPIController,
+    HermiteSplineSampler,
+)
+from mppi_controller.controllers.mppi.step_mppi import (
+    StepMPPIController,
+    ProposalNetwork,
+    ProposalTrainer,
+    StepExperienceBuffer,
+)
+from mppi_controller.controllers.mppi.mppi_params import (
+    PGDMPPIParams,
+    TRMPPIParams,
+    RFMPPIParams,
+    StepMPPIParams,
+)
 
 __all__ = [
     "ConformalCBFMPPIController",
@@ -244,4 +272,28 @@ __all__ = [
     # PR-MPPI (Parameter-Robust)
     "ParameterRobustMPPIController",
     "ParameterRobustMPPIParams",
+    # Koopman-MPPI (Linear Dynamics via Koopman Operator)
+    "KoopmanMPPIController",
+    "KoopmanMPPIParams",
+    "KoopmanBatchRollout",
+    # World Model MPPI (Latent Space Planning)
+    "WorldModelMPPIController",
+    "WorldModelMPPIParams",
+    # PGD-MPPI (Preconditioned Gradient Descent, 40th)
+    "PGDMPPIController",
+    "PGDMPPIParams",
+    # TR-MPPI (Trust Region, 41st)
+    "TRMPPIController",
+    "TRMPPIParams",
+    "HaltonLCDSampler",
+    # RF-MPPI (Reference-Free Hermite Spline, 42nd)
+    "RFMPPIController",
+    "RFMPPIParams",
+    "HermiteSplineSampler",
+    # Step-MPPI (Single-Step via DPC, 43rd)
+    "StepMPPIController",
+    "StepMPPIParams",
+    "ProposalNetwork",
+    "ProposalTrainer",
+    "StepExperienceBuffer",
 ]

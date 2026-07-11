@@ -1818,3 +1818,281 @@ class ParameterRobustMPPIParams(MPPIParams):
             "min_observations must be >= 1"
         assert 0 < self.resample_threshold <= 1, \
             "resample_threshold must be in (0, 1]"
+
+
+@dataclass
+class KoopmanMPPIParams(MPPIParams):
+    """
+    Koopman MPPI 전용 파라미터
+
+    Koopman 연산자 기반 선형 동역학으로 rollout을 가속화.
+    EDMD(Extended Dynamic Mode Decomposition)로 데이터에서 행렬 K, B, C 학습.
+
+    Attributes:
+        koopman_lift_fn: 특징 함수 타입 ("rbf" | "poly" | "identity")
+        koopman_lift_dim: 특징 공간 차원 (RBF 수 또는 poly 차원)
+        koopman_rbf_gamma: RBF 커널 대역폭 γ
+        koopman_poly_degree: 다항식 차수 (1 또는 2)
+        koopman_use_bias: 특징에 bias(1) 항 추가
+        koopman_reg: EDMD Tikhonov 정규화 계수
+        koopman_min_samples: EDMD 학습 최소 샘플 수
+        koopman_buffer_size: 온라인 데이터 버퍼 최대 크기
+        koopman_online_fitting: 온라인 EDMD 재학습 활성화
+        koopman_fit_interval: 온라인 학습 주기 (스텝 수)
+    """
+
+    # 특징 함수 설정
+    koopman_lift_fn: str = "rbf"
+    koopman_lift_dim: int = 64
+    koopman_rbf_gamma: float = 1.0
+    koopman_poly_degree: int = 2
+    koopman_use_bias: bool = True
+
+    # 학습 설정
+    koopman_reg: float = 1e-4
+    koopman_min_samples: int = 50
+    koopman_buffer_size: int = 5000
+
+    # 온라인 학습
+    koopman_online_fitting: bool = False
+    koopman_fit_interval: int = 50
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.koopman_lift_fn in ("rbf", "poly", "identity"), \
+            f"koopman_lift_fn must be 'rbf', 'poly', or 'identity', got {self.koopman_lift_fn!r}"
+        assert self.koopman_lift_dim > 0, "koopman_lift_dim must be positive"
+        assert self.koopman_rbf_gamma > 0, "koopman_rbf_gamma must be positive"
+        assert self.koopman_poly_degree in (1, 2), "koopman_poly_degree must be 1 or 2"
+        assert self.koopman_reg > 0, "koopman_reg must be positive"
+        assert self.koopman_min_samples >= 2, "koopman_min_samples must be >= 2"
+        assert self.koopman_buffer_size >= self.koopman_min_samples, \
+            "koopman_buffer_size must be >= koopman_min_samples"
+        assert self.koopman_fit_interval >= 1, "koopman_fit_interval must be >= 1"
+
+
+@dataclass
+class PGDMPPIParams(MPPIParams):
+    """
+    PGD-MPPI (Preconditioned Gradient Descent MPPI) 전용 파라미터 — 40번째 변형
+
+    MPPI를 KL 정규화 변분 문제의 전처리 경사 하강(preconditioned gradient
+    descent)으로 재해석. 고정 공분산 가우시안의 경우, 표준 MPPI 업데이트는
+    unit-step(α=1) 전처리 경사 스텝으로 정확히 복원된다. 이를 일반화하여
+    (1) 스텝 크기 α 조절, (2) 매 제어 주기 다중 경사 스텝, (3) Gibbs-tilted
+    분포의 공분산을 이용한 공분산 전처리 적응을 지원.
+
+    핵심 수식:
+        자유 에너지 F(μ) = -λ log E_{q}[exp(-S(U)/λ)]
+        전처리 경사: g̃ = Σ_i w_i ε_i              (w_i = softmax(-S_i/λ))
+        평균 업데이트: μ ← μ + α · g̃              (α=1 → 표준 MPPI)
+        공분산 전처리: Σ ← (1-β)Σ + β · Cov_w(U)   (tilted 경험 공분산)
+
+    기본값(step_size=1.0, n_grad_steps=1, adapt_covariance=False)에서
+    Vanilla MPPI와 정확히 동일하게 동작 (graceful superset).
+
+    Reference: arXiv:2603.24489, "Model Predictive Path Integral Control as
+    Preconditioned Gradient Descent" (2026)
+
+    Attributes:
+        step_size: 전처리 경사 스텝 크기 α (1.0 = 표준 MPPI)
+        n_grad_steps: 제어 주기당 경사 스텝(내부 반복) 수
+        resample_each_step: 각 경사 스텝마다 노이즈 재샘플링
+        adapt_covariance: Gibbs-tilted 공분산 전처리 활성화
+        cov_step_size: 공분산 적응 비율 β (EMA)
+        cov_min_scale: 공분산 스케일 하한 (붕괴 방지)
+        cov_max_scale: 공분산 스케일 상한 (발산 방지)
+        normalize_gradient: 경사를 ESS로 정규화(수치 안정)
+    """
+
+    step_size: float = 1.0
+    n_grad_steps: int = 1
+    resample_each_step: bool = True
+    adapt_covariance: bool = False
+    cov_step_size: float = 0.2
+    cov_min_scale: float = 0.25
+    cov_max_scale: float = 4.0
+    normalize_gradient: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.step_size > 0, "step_size must be positive"
+        assert self.n_grad_steps >= 1, "n_grad_steps must be >= 1"
+        assert self.cov_step_size >= 0, "cov_step_size must be non-negative"
+        assert 0 < self.cov_min_scale <= self.cov_max_scale, \
+            "require 0 < cov_min_scale <= cov_max_scale"
+
+
+@dataclass
+class TRMPPIParams(MPPIParams):
+    """
+    TR-MPPI (Trust Region MPPI) 전용 파라미터 — 41번째 변형
+
+    샘플링 기반 MPC를 신뢰 영역(trust region) 프레임으로 정식화. proposal
+    분포(가우시안 평균)의 업데이트를 KL 발산 경계 δ로 제약하고, 공분산에
+    엔트로피 하한을 두어 조기 붕괴를 방지. 추가로 결정론적 LCD(localized
+    cumulative distribution) 샘플링으로 샘플 효율과 수렴성을 개선.
+
+    핵심 수식:
+        고정 공분산 가우시안의 평균 간 KL:
+            KL(q_new‖q_old) = ½ Δμ^T Σ^{-1} Δμ
+        신뢰 영역 투영(평균 업데이트 Δμ = α Σ_i w_i ε_i):
+            KL_prop > δ 이면  Δμ ← Δμ · sqrt(δ / KL_prop)
+        엔트로피 하한:  H(q) = ½ log((2πe)^n |Σ|) ≥ H_min
+            → 대각 σ_d ≥ σ_floor 로 클리핑
+        LCD 결정론적 샘플:  ε = Σ^{1/2} · Φ^{-1}(halton_d)  (저불일치 수열)
+
+    기본값(trust_region_radius 큼, use_deterministic_sampling=False,
+    n_iters=1)에서 Vanilla MPPI에 근접.
+
+    Reference: arXiv:2605.07801, "Sampling-based Model Predictive Control
+    Using Trust Regions" (2026)
+
+    Attributes:
+        trust_region_radius: KL 경계 δ (작을수록 보수적 업데이트)
+        use_kl_bound: 신뢰 영역(KL) 평균 투영 활성화
+        n_iters: 제어 주기당 신뢰 영역 반복 수
+        use_deterministic_sampling: LCD(Halton) 결정론적 샘플링
+        adapt_covariance: 가중 경험 공분산으로 공분산 적응
+        cov_step_size: 공분산 적응 비율 β
+        entropy_floor_scale: σ_floor = entropy_floor_scale · sigma (엔트로피 하한)
+        cov_max_scale: 공분산 스케일 상한
+    """
+
+    trust_region_radius: float = 1.0
+    use_kl_bound: bool = True
+    n_iters: int = 1
+    use_deterministic_sampling: bool = False
+    adapt_covariance: bool = False
+    cov_step_size: float = 0.2
+    entropy_floor_scale: float = 0.3
+    cov_max_scale: float = 4.0
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.trust_region_radius > 0, "trust_region_radius must be positive"
+        assert self.n_iters >= 1, "n_iters must be >= 1"
+        assert self.cov_step_size >= 0, "cov_step_size must be non-negative"
+        assert 0 < self.entropy_floor_scale <= 1.0, \
+            "entropy_floor_scale must be in (0, 1]"
+        assert self.cov_max_scale >= 1.0, "cov_max_scale must be >= 1"
+
+
+@dataclass
+class RFMPPIParams(MPPIParams):
+    """
+    RF-MPPI (Reference-Free Spline MPPI) 전용 파라미터 — 42번째 변형
+
+    제어 시퀀스를 저차원 큐빅 Hermite 스플라인으로 파라미터화하여, 소수의
+    제어점(knot) 공간에서 섭동을 샘플링하고 매끄러운 N-스텝 제어로 보간.
+    "dual-space" — 각 knot이 위치(position)와 속도(velocity, Hermite 접선)
+    제어점을 모두 가져 풍부한 매끄러운 모션을 적은 샘플로 탐색. GPU 없이
+    CPU에서 소수 샘플(K≈32~64)로 실시간 동작.
+
+    핵심 수식:
+        knot 시간 τ_0..τ_{M-1}, 각 knot: 위치 p_m, 속도 v_m (dual-space)
+        Hermite 기저로 N-스텝 제어 보간:
+            u(t) = Σ_m [ h00(s)p_m + h10(s)v_m + h01(s)p_{m+1} + h11(s)v_{m+1} ]
+        섭동: p_m += N(0, σ_p²),  v_m += N(0, σ_v²)   (knot 공간, 저차원)
+        → 매끄러움이 구조적으로 보장, 적은 K로도 ESS 높음
+
+    Reference: arXiv:2511.19204, "Reference-Free Sampling-Based Model
+    Predictive Control" (2026)
+
+    Attributes:
+        n_knots: 스플라인 제어점 수 M (M << N)
+        sample_velocity_knots: 속도 knot도 샘플링(dual-space) 여부
+        knot_sigma_pos: 위치 knot 섭동 표준편차 (None → sigma 사용)
+        knot_sigma_vel: 속도 knot 섭동 표준편차
+        clamp_endpoints_vel: 시작/끝 속도 knot을 0으로 고정
+        spline_warm_shift: receding horizon에서 knot warm-start 시프트
+    """
+
+    n_knots: int = 6
+    sample_velocity_knots: bool = True
+    knot_sigma_pos: Optional[np.ndarray] = None
+    knot_sigma_vel: float = 0.3
+    clamp_endpoints_vel: bool = False
+    spline_warm_shift: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.n_knots >= 2, "n_knots must be >= 2"
+        assert self.n_knots <= self.N + 1, "n_knots must be <= N+1"
+        assert self.knot_sigma_vel > 0, "knot_sigma_vel must be positive"
+        if self.knot_sigma_pos is not None and not isinstance(
+            self.knot_sigma_pos, np.ndarray
+        ):
+            self.knot_sigma_pos = np.array(self.knot_sigma_pos)
+
+
+@dataclass
+class StepMPPIParams(MPPIParams):
+    """
+    Step-MPPI (Single-Step MPPI via Differentiable Predictive Control) — 43번째 변형
+
+    신경망이 MPPI proposal 분포(평균 시퀀스 + 대각 공분산 스케일)를
+    파라미터화하도록 학습. 장기 호라이즌 MPC 목적(비용 + 제약 페널티 +
+    최대 엔트로피 정규화)을 학습 시점에 주입하여, 런타임에는 짧은(단일)
+    스텝 lookahead만으로 장기 계획 정보를 암묵적으로 활용 → 초저지연.
+
+    핵심 수식:
+        proposal 네트워크: (μ_θ(x,ref), σ_θ(x,ref)) = NN(x, ref)
+        샘플:  U_k = μ_θ + diag(σ_θ) ε_k,   ε_k ~ N(0, I)
+        자기지도 학습 손실:
+            L(θ) = E[ J_MPC(U) + ρ·penalty(U) − τ·H(q_θ) ]
+        출력층 zero-init → 학습 전 μ_θ≈prev_U, σ_θ≈sigma (graceful degradation)
+
+    blend_ratio로 학습 평균과 이전 해를 혼합, zero-init 시 Vanilla로 자연
+    퇴화. T-MPPI(Transformer 히스토리 init)와 달리 평균+공분산을 함께
+    출력하고 최대 엔트로피 DPC로 학습.
+
+    Reference: arXiv:2604.01539, "Toward Single-Step MPPI via Differentiable
+    Predictive Control" (2026)
+
+    Attributes:
+        lookahead_steps: 런타임 lookahead 스텝(1 = single-step)
+        proposal_hidden_dim: proposal MLP 은닉 차원
+        proposal_n_layers: proposal MLP 레이어 수
+        use_learned_proposal: 학습 proposal 사용(False → Vanilla)
+        blend_ratio: μ_θ와 이전 해 혼합 비율 [0,1]
+        learn_covariance: 대각 공분산 σ_θ도 학습
+        online_training: 온라인 자기지도 학습 활성화
+        proposal_lr: 학습률
+        train_interval: 학습 주기(스텝)
+        train_batch_size: 미니배치 크기
+        buffer_size: 경험 버퍼 크기
+        min_train_samples: 학습 시작 최소 샘플
+        entropy_weight: 최대 엔트로피 정규화 τ
+        constraint_weight: 제약 페널티 ρ
+        elite_frac: 버퍼에 저장할 엘리트 샘플 비율
+        device: 'cpu' | 'cuda'
+    """
+
+    lookahead_steps: int = 1
+    proposal_hidden_dim: int = 64
+    proposal_n_layers: int = 2
+    use_learned_proposal: bool = True
+    blend_ratio: float = 0.7
+    learn_covariance: bool = True
+    online_training: bool = True
+    proposal_lr: float = 1e-3
+    train_interval: int = 10
+    train_batch_size: int = 64
+    buffer_size: int = 2000
+    min_train_samples: int = 64
+    entropy_weight: float = 0.01
+    constraint_weight: float = 1.0
+    elite_frac: float = 0.1
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert self.lookahead_steps >= 1, "lookahead_steps must be >= 1"
+        assert self.proposal_hidden_dim > 0, "proposal_hidden_dim must be positive"
+        assert self.proposal_n_layers >= 1, "proposal_n_layers must be >= 1"
+        assert 0.0 <= self.blend_ratio <= 1.0, "blend_ratio must be in [0, 1]"
+        assert self.proposal_lr > 0, "proposal_lr must be positive"
+        assert self.train_interval >= 1, "train_interval must be >= 1"
+        assert self.buffer_size >= self.min_train_samples, \
+            "buffer_size must be >= min_train_samples"
+        assert 0.0 < self.elite_frac <= 1.0, "elite_frac must be in (0, 1]"

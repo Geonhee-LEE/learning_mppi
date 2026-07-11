@@ -18,6 +18,10 @@ from mppi_controller.learning.world_model_trainer import (
     WorldModelVAE,
     WorldModelTrainer,
 )
+from mppi_controller.models.learned.koopman_dynamics import (
+    KoopmanDynamics,
+    KoopmanTrainer,
+)
 
 __all__ = [
     "ConformalPredictor",
@@ -32,4 +36,6 @@ __all__ = [
     "EvidentialLoss",
     "WorldModelVAE",
     "WorldModelTrainer",
+    "KoopmanDynamics",
+    "KoopmanTrainer",
 ]

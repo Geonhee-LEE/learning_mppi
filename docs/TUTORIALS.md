@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-37종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
+43종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -10,7 +10,7 @@
 1. [환경 설정](#1-환경-설정)
 2. [기본 MPPI 제어 (기구학)](#2-기본-mppi-제어-기구학)
 3. [동역학 모델 제어](#3-동역학-모델-제어)
-4. [MPPI 변형 29종 벤치마크](#4-mppi-변형-29종-벤치마크)
+4. [MPPI 변형 30종 벤치마크](#4-mppi-변형-30종-벤치마크)
 5. [안전 제어 (CBF / Shield / Adaptive)](#5-안전-제어-cbf--shield--adaptive)
 6. [모델 학습 (NN / GP / Residual / Ensemble)](#6-모델-학습-nn--gp--residual--ensemble)
 7. [메타 학습 및 온라인 적응](#7-메타-학습-및-온라인-적응-maml--lora--ekf--l1--alpaca)
@@ -187,9 +187,9 @@ PYTHONPATH=. python examples/comparison/kinematic_vs_dynamic_demo.py --no-plot
 
 ---
 
-## 4. MPPI 변형 29종 벤치마크
+## 4. MPPI 변형 30종 벤치마크
 
-29가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
+30가지 MPPI 변형 알고리즘을 동시에 비교하여 성능을 평가합니다.
 각 변형은 특정 문제(분포 왜곡, 위험 회피, 샘플 다양성 등)를
 해결하기 위해 설계되었습니다.
 
@@ -241,6 +241,7 @@ PYTHONPATH=. python examples/mppi_all_variants_benchmark.py --no-plot
 | 27 | **GN** | 가우스-뉴턴 2차 업데이트 + 라인 서치 | 비용 지형 곡률 활용 정밀 최적화 |
 | 28 | **T** | Transformer 기반 초기화 학습 | 수렴 가속 + graceful degradation |
 | 29 | **F** | Riccati 피드백 재사용 (75%+ 절감) | 고주파 제어 (50Hz+) |
+| 30 | **Koopman** | EDMD Koopman 연산자 → 선형 특징 공간 예측 | 배치 rollout 가속 (행렬 곱 O(K*N)) |
 
 ### 변형별 고유 파라미터
 
@@ -266,7 +267,7 @@ UncertaintyMPPIParams(K=1024, N=30, strategy="two_pass")
 
 ### 기대 결과
 
-- 24종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
+- 25종 알고리즘의 RMSE, 계산 시간, ESS 비교 테이블 출력
 - 궤적 비교 플롯 (각 변형의 추적 경로 오버레이)
 - Vanilla 대비 각 변형의 상대 성능 비율
 
@@ -1502,6 +1503,230 @@ PYTHONPATH=. python examples/comparison/parameter_robust_mppi_benchmark.py --liv
 - **B. mild_mismatch**: wheelbase 0.5→0.6 (20% 불일치) — 적응 학습 효과
 - **C. severe_mismatch**: wheelbase 0.5→0.8 (60% 불일치) — RMSE 35% 개선
 - **D. mismatch_obstacles**: 불일치 + 3개 장애물 — 안전 + 강건성 동시 요구
+
+### 9.28 Koopman-MPPI (Koopman Operator) 벤치마크
+
+EDMD(Extended Dynamic Mode Decomposition)로 Koopman 연산자를 학습하여,
+비선형 동역학을 선형 특징 공간에서 행렬 곱으로 예측합니다.
+미학습 시 fallback dynamics를 자동으로 사용하여 graceful degradation을 보장합니다.
+
+```bash
+# 기본 벤치마크
+PYTHONPATH=. python examples/comparison/koopman_mppi_benchmark.py --no-plot
+
+# 라이브 애니메이션
+PYTHONPATH=. python examples/comparison/koopman_mppi_benchmark.py --live
+
+# 전체 시나리오
+PYTHONPATH=. python examples/comparison/koopman_mppi_benchmark.py --all-scenarios
+```
+
+**Koopman-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `koopman_lift_fn` | 리프팅 함수 종류 | "rbf" |
+| `koopman_lift_dim` | 리프팅 특징 차원 | 64 |
+| `koopman_reg` | EDMD 정규화 계수 | 1e-4 |
+
+**핵심 파일:**
+- `mppi_controller/controllers/mppi/koopman_mppi.py` — Koopman-MPPI 컨트롤러
+- `mppi_controller/models/learned/koopman_dynamics.py` — EDMD Koopman 동역학 모델
+
+**핵심 아이디어:**
+- 비선형 f(x,u)를 리프팅 함수 ψ(x)로 고차원 특징 공간에 매핑
+- EDMD로 선형 연산자 K 학습: ψ(x') ≈ K·[ψ(x); u]
+- 배치 rollout이 행렬 곱 O(K*N)으로 가속
+- 미학습 상태에서 원본 dynamics fallback 자동 사용
+
+### 9.29 PGD-MPPI (Preconditioned Gradient Descent) 벤치마크
+
+MPPI를 KL 정규화 자유에너지의 전처리 경사 하강으로 재해석합니다.
+스텝 크기 α·다중 경사 스텝·공분산 전처리 적응을 제공하며,
+기본값에서는 Vanilla MPPI와 정확히 동일하게 동작합니다 (graceful superset).
+
+```python
+import numpy as np
+from mppi_controller.models.kinematic.differential_drive_kinematic import (
+    DifferentialDriveKinematic,
+)
+from mppi_controller.controllers.mppi import PGDMPPIController, PGDMPPIParams
+
+model = DifferentialDriveKinematic(wheelbase=0.5)
+params = PGDMPPIParams(
+    K=512, N=30, dt=0.05, lambda_=1.0,
+    sigma=np.array([0.5, 0.5]),
+    step_size=1.0,          # 전처리 경사 스텝 α (1.0 = 표준 MPPI)
+    n_grad_steps=2,         # 제어 주기당 경사 스텝 수
+    adapt_covariance=True,  # Gibbs-tilted 공분산 전처리
+)
+controller = PGDMPPIController(model, params)
+
+state = np.array([0.0, 0.0, 0.0])             # [x, y, θ]
+reference = np.tile([2.0, 1.0, 0.0], (params.N + 1, 1))  # (N+1, 3)
+control, info = controller.compute_control(state, reference)
+print(control, info["pgd_stats"]["grad_norm"])
+```
+
+```bash
+PYTHONPATH=. python examples/comparison/pgd_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/pgd_mppi_benchmark.py --live --scenario obstacles
+```
+
+**PGD-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `step_size` | 전처리 경사 스텝 크기 α (1.0 = 표준 MPPI) | 1.0 |
+| `n_grad_steps` | 제어 주기당 경사 스텝 수 | 1 |
+| `adapt_covariance` | Gibbs-tilted 공분산 전처리 활성화 | False |
+| `cov_step_size` | 공분산 적응 비율 β (EMA) | 0.2 |
+| `cov_min_scale` | 공분산 스케일 하한 (붕괴 방지) | 0.25 |
+| `cov_max_scale` | 공분산 스케일 상한 (발산 방지) | 4.0 |
+| `normalize_gradient` | 경사를 ESS로 정규화 | False |
+
+### 9.30 TR-MPPI (Trust Region) 벤치마크
+
+proposal 평균 업데이트를 KL 발산 경계 δ로 제약하여 단조롭고 안정적인 수렴을 보장합니다.
+공분산 엔트로피 하한으로 조기 붕괴를 막고, Halton 저불일치 수열 + 역정규 CDF 기반
+결정론적 LCD 샘플링으로 샘플 효율을 높입니다.
+
+```python
+import numpy as np
+from mppi_controller.models.kinematic.differential_drive_kinematic import (
+    DifferentialDriveKinematic,
+)
+from mppi_controller.controllers.mppi import TRMPPIController, TRMPPIParams
+
+model = DifferentialDriveKinematic(wheelbase=0.5)
+params = TRMPPIParams(
+    K=512, N=30, dt=0.05, lambda_=1.0,
+    sigma=np.array([0.5, 0.5]),
+    trust_region_radius=1.0,         # KL 경계 δ (작을수록 보수적)
+    use_kl_bound=True,
+    use_deterministic_sampling=True, # Halton-LCD 결정론적 샘플링
+    n_iters=2,
+)
+controller = TRMPPIController(model, params)
+
+state = np.array([0.0, 0.0, 0.0])
+reference = np.tile([2.0, 1.0, 0.0], (params.N + 1, 1))
+control, info = controller.compute_control(state, reference)
+print(control, info["tr_stats"]["kl_divergence"], info["tr_stats"]["step_scaled"])
+```
+
+```bash
+PYTHONPATH=. python examples/comparison/tr_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/tr_mppi_benchmark.py --live --scenario obstacles
+```
+
+**TR-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `trust_region_radius` | KL 경계 δ (작을수록 보수적) | 1.0 |
+| `use_kl_bound` | 신뢰 영역(KL) 평균 투영 활성화 | True |
+| `n_iters` | 제어 주기당 신뢰 영역 반복 수 | 1 |
+| `use_deterministic_sampling` | LCD(Halton) 결정론적 샘플링 | False |
+| `adapt_covariance` | 가중 경험 공분산 적응 | False |
+| `entropy_floor_scale` | σ_floor = scale·σ_base (엔트로피 하한) | 0.3 |
+| `cov_max_scale` | 공분산 스케일 상한 | 4.0 |
+
+### 9.31 RF-MPPI (Reference-Free Spline) 벤치마크
+
+제어 시퀀스를 저차원 큐빅 Hermite 스플라인(위치+속도 dual-space)으로 파라미터화합니다.
+소수의 knot 공간에서 섭동을 샘플링하여 매끄러움을 구조적으로 보장하므로,
+적은 샘플(K≈32~64)로도 높은 ESS와 낮은 jerk를 달성하며 CPU 실시간 동작이 가능합니다.
+
+```python
+import numpy as np
+from mppi_controller.models.kinematic.differential_drive_kinematic import (
+    DifferentialDriveKinematic,
+)
+from mppi_controller.controllers.mppi import RFMPPIController, RFMPPIParams
+
+model = DifferentialDriveKinematic(wheelbase=0.5)
+params = RFMPPIParams(
+    K=48, N=30, dt=0.05, lambda_=1.0,
+    sigma=np.array([0.5, 0.5]),
+    n_knots=6,                   # 스플라인 제어점 수 M (M << N)
+    sample_velocity_knots=True,  # 속도 knot도 샘플링 (dual-space)
+    knot_sigma_vel=0.3,
+    spline_warm_shift=True,
+)
+controller = RFMPPIController(model, params)
+
+state = np.array([0.0, 0.0, 0.0])
+reference = np.tile([2.0, 1.0, 0.0], (params.N + 1, 1))
+control, info = controller.compute_control(state, reference)
+print(control, info["rf_stats"]["n_knots"], info["rf_stats"]["dual_space"])
+```
+
+```bash
+PYTHONPATH=. python examples/comparison/rf_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/rf_mppi_benchmark.py --live --scenario obstacles
+```
+
+**RF-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `n_knots` | 스플라인 제어점 수 M (M << N) | 6 |
+| `sample_velocity_knots` | 속도 knot도 샘플링 (dual-space) | True |
+| `knot_sigma_pos` | 위치 knot 섭동 σ (None → sigma) | None |
+| `knot_sigma_vel` | 속도 knot 섭동 σ | 0.3 |
+| `clamp_endpoints_vel` | 시작/끝 속도 knot 0 고정 | False |
+| `spline_warm_shift` | receding horizon knot 시프트 | True |
+
+> **실측 하이라이트**: K=24 few-sample 조건에서 RF-dual의 MSSD가 Vanilla 대비 약 13배 매끄러우면서 RMSE는 1.83→0.32로 개선되었습니다.
+
+### 9.32 Step-MPPI (Single-Step via DPC) 벤치마크
+
+신경망이 MPPI proposal 분포(평균 잔차 + 대각 공분산)를 학습합니다.
+장기 호라이즌 MPC 목적(비용+제약+최대 엔트로피)을 학습 시점에 주입하여,
+런타임에는 짧은(단일) 스텝 lookahead만으로 장기 계획 정보를 활용합니다.
+출력층 zero-init으로 학습 전에는 Vanilla MPPI로 graceful 퇴화하며, torch 부재 시에도 동작합니다.
+
+```python
+import numpy as np
+from mppi_controller.models.kinematic.differential_drive_kinematic import (
+    DifferentialDriveKinematic,
+)
+from mppi_controller.controllers.mppi import StepMPPIController, StepMPPIParams
+
+model = DifferentialDriveKinematic(wheelbase=0.5)
+params = StepMPPIParams(
+    K=512, N=10, dt=0.05, lambda_=1.0,
+    sigma=np.array([0.5, 0.5]),
+    lookahead_steps=1,         # 단일 스텝 lookahead
+    use_learned_proposal=True, # 학습 proposal (False → Vanilla)
+    learn_covariance=True,     # 대각 공분산도 학습
+    online_training=True,      # 온라인 자기지도 학습
+)
+controller = StepMPPIController(model, params)
+
+state = np.array([0.0, 0.0, 0.0])
+reference = np.tile([2.0, 1.0, 0.0], (params.N + 1, 1))
+control, info = controller.compute_control(state, reference)
+print(control, info["step_stats"]["use_net"], info["step_stats"]["train_count"])
+```
+
+```bash
+PYTHONPATH=. python examples/comparison/step_mppi_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/step_mppi_benchmark.py --live --scenario obstacles
+```
+
+**Step-MPPI 핵심 파라미터:**
+
+| 파라미터 | 설명 | 기본값 |
+|---------|------|--------|
+| `lookahead_steps` | 런타임 lookahead (1 = single-step) | 1 |
+| `use_learned_proposal` | 학습 proposal 사용 (False → Vanilla) | True |
+| `blend_ratio` | μ_θ와 이전 해 혼합 비율 | 0.7 |
+| `learn_covariance` | 대각 공분산 σ_θ 학습 | True |
+| `online_training` | 온라인 자기지도 학습 | True |
+| `train_interval` | 학습 주기 (스텝) | 10 |
+| `entropy_weight` | 최대 엔트로피 정규화 τ | 0.01 |
 
 ---
 

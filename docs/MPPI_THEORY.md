@@ -1,6 +1,6 @@
 # MPPI 심층 이론 가이드
 
-> **대상 독자**: MPPI 알고리즘의 수학적 기초와 36개 변형을 깊이 이해하고자 하는 대학원생 및 연구자
+> **대상 독자**: MPPI 알고리즘의 수학적 기초와 43개 변형을 깊이 이해하고자 하는 대학원생 및 연구자
 >
 > **구현 참조**: 모든 수식은 `mppi_controller/controllers/mppi/` 내 실제 코드와 1:1 대응
 
@@ -44,7 +44,12 @@
 34. [C-MPPI (Contingency MPPI)](#34-c-mppi-contingency-mppi)
 35. [DualGuard-MPPI (HJ Safety Value MPPI)](#35-dualguard-mppi-hj-safety-value-mppi)
 36. [PR-MPPI (Parameter-Robust MPPI)](#36-pr-mppi-parameter-robust-mppi)
-37. [변형 선택 가이드](#37-변형-선택-가이드)
+37. [Koopman-MPPI (선형 Koopman 동역학)](#37-koopman-mppi--선형-koopman-동역학-기반-mppi)
+38. [PGD-MPPI (Preconditioned Gradient Descent MPPI)](#38-pgd-mppi-preconditioned-gradient-descent-mppi)
+39. [TR-MPPI (Trust Region MPPI)](#39-tr-mppi-trust-region-mppi)
+40. [RF-MPPI (Reference-Free Spline MPPI)](#40-rf-mppi-reference-free-spline-mppi)
+41. [Step-MPPI (Single-Step MPPI via DPC)](#41-step-mppi-single-step-mppi-via-dpc)
+42. [변형 선택 가이드](#42-변형-선택-가이드)
 
 ---
 
@@ -5476,7 +5481,498 @@ RMSE 35% 개선을 달성한다.
 
 ---
 
-## 37. 변형 선택 가이드
+## 37. Koopman-MPPI — 선형 Koopman 동역학 기반 MPPI
+
+**Reference**: Koopman (1931), Williams et al. (2015) EDMD
+
+### 37.1 이론적 배경
+
+Koopman 연산자 이론 (Koopman, 1931)은 비선형 동역학 시스템을 무한 차원 선형 연산자로 표현:
+
+$$\mathcal{K} g(x) = g(F(x))$$
+
+여기서 g는 관측 함수, F는 비선형 동역학.
+
+유한 차원 근사를 위해 Extended DMD (EDMD, Williams et al. 2015):
+
+```
+특징 함수 φ(x): 상태를 고차원 공간으로 lifting
+  - RBF: φ_i(x) = exp(-γ ||x - c_i||²)
+  - Polynomial: [x, x⊗x] (degree 2)
+  - Identity: φ(x) = x
+
+선형 모델: z_{t+1} = K @ φ(x_t) + B @ u_t
+
+EDMD 학습: min_{K,B} ||Z_next - [K|B] @ [Φ; U]||² + λ||[K|B]||²
+
+역투영: x ≈ C @ z (처음 nx 성분 추출)
+```
+
+### 37.2 MPPI에서의 활용
+
+```
+매 스텝:
+  [Phase 1: Koopman 모델 확인]
+  1. EDMD 학습 완료 여부 확인
+     - 미학습 시: 기본 dynamics_wrapper fallback (graceful degradation)
+     - 학습 완료 시: 선형 Koopman 모델 사용
+
+  [Phase 2: 배치 Rollout (선형 행렬 곱)]
+  2. K개 노이즈 샘플링
+  3. 각 샘플에 대해 선형 모델로 rollout:
+     z_0 = φ(x_t)
+     z_{n+1} = K @ z_n + B @ (u_n + ε_n)   (행렬 곱, K×N 일괄)
+     x_n ≈ C @ z_n
+
+  [Phase 3: 표준 MPPI 가중 평균]
+  4. 비용 계산 → softmax 가중치 → U* 업데이트
+
+  [Phase 4: 온라인 재학습 (선택적)]
+  5. 버퍼에 전이 데이터 (x_t, u_t, x_{t+1}) 축적
+  6. 주기적으로 EDMD 재학습 (최소제곱, 1회)
+```
+
+### 37.3 EDMD 학습 과정
+
+```
+데이터 수집:
+  (x_1, u_1, x_2), (x_2, u_2, x_3), ..., (x_{N-1}, u_{N-1}, x_N)
+
+Lifting:
+  Φ = [φ(x_1), φ(x_2), ..., φ(x_{N-1})]    (n_features × N-1)
+  U = [u_1, u_2, ..., u_{N-1}]               (nu × N-1)
+  Z_next = [φ(x_2), φ(x_3), ..., φ(x_N)]    (n_features × N-1)
+
+최소제곱:
+  [K | B] = Z_next @ [Φ; U]^T @ ([Φ; U] @ [Φ; U]^T + λI)^{-1}
+
+  → 비반복적 (closed-form), 1회 연산으로 완료
+```
+
+### 37.4 구현
+
+```python
+# 컨트롤러
+KoopmanMPPIController(MPPIController)
+  |-- compute_control(): Koopman rollout → 표준 MPPI 가중 평균
+  |-- _rollout_koopman(): 선형 행렬 곱 배치 rollout
+  |-- _rollout_nominal(): fallback 비선형 rollout
+  +-- _maybe_update_koopman(): 주기적 온라인 EDMD 재학습
+
+# Koopman 동역학 모델
+KoopmanDynamics
+  |-- fit_edmd(): EDMD 최소제곱 학습
+  |-- predict_batch(): K×N 배치 선형 예측
+  |-- lift(): φ(x) 특징 추출
+  |-- unlift(): z → x 역투영
+  +-- add_data(): 온라인 데이터 버퍼 축적
+
+# 파라미터
+KoopmanMPPIParams(MPPIParams)
+  |-- feature_type: "rbf" | "polynomial" | "identity"
+  |-- n_features: 특징 함수 차원
+  |-- rbf_gamma: RBF 커널 파라미터
+  |-- regularization: EDMD 정규화 계수
+  |-- online_learning: True      # 온라인 학습 활성화
+  |-- update_interval: 10        # 학습 주기 (스텝)
+  +-- min_samples: 50            # 학습 시작 최소 데이터 수
+```
+
+### 37.5 기존 변형 대비
+
+| 비교 항목 | Vanilla MPPI | Latent-MPPI | Koopman-MPPI |
+|----------|-------------|-------------|--------------|
+| 동역학 | 원본 비선형 | VAE 잠재 공간 | 선형 Koopman |
+| 학습 | 불필요 | 딥러닝 (VAE) | EDMD (최소제곱) |
+| 해석성 | 모델 의존 | 불투명 | K, B 행렬 직접 분석 가능 |
+| 학습 비용 | 없음 | 높음 (epochs) | 매우 낮음 (1회 최소제곱) |
+| Rollout 속도 | 기준 | 빠름 (저차원) | 빠름 (선형 연산) |
+
+Koopman-MPPI의 핵심 장점은 **EDMD가 비반복적 최소제곱으로 매우 빠르게 학습** 가능하며,
+**선형 행렬 연산으로 배치 rollout을 가속**하는 것이다. Latent-MPPI와 달리
+K, B 행렬을 직접 분석하여 시스템의 선형화된 동역학을 해석할 수 있으며,
+미학습 상태에서도 기본 동역학으로 graceful degradation이 보장된다.
+
+---
+
+## 38. PGD-MPPI (Preconditioned Gradient Descent MPPI)
+
+**Reference**: arXiv:2603.24489, "Model Predictive Path Integral Control as Preconditioned Gradient Descent" (2026)
+
+### 38.1 핵심 아이디어
+
+표준 MPPI 업데이트는 사실 **KL 정규화 변분 문제의 전처리 경사 하강(preconditioned gradient descent) 한 스텝**으로 정확히 해석된다. 자유 에너지(free energy)를 최소화하는 변분 문제
+
+$$F(\mu) = -\lambda \log \mathbb{E}_{q}\!\left[\exp\!\left(-\frac{S(U)}{\lambda}\right)\right]$$
+
+를 고려하면, 고정 공분산 가우시안 proposal에서 $\mu$에 대한 전처리 경사는 softmax 가중 노이즈 평균과 같다. 즉 **Vanilla MPPI = unit-step(α=1) 전처리 경사 스텝**이다.
+
+**PGD-MPPI**는 이 관점을 일반화하여 세 가지 자유도를 제공한다:
+
+```
+(1) 스텝 크기 α (step_size)         — α=1이 표준 MPPI
+(2) 제어 주기당 다중 경사 스텝 (n_grad_steps)
+(3) Gibbs-tilted 경험 공분산을 이용한 공분산 전처리 적응 (adapt_covariance)
+```
+
+기본값(`step_size=1.0, n_grad_steps=1, adapt_covariance=False`)에서는 Vanilla MPPI와 **정확히 동일하게** 동작한다 (graceful superset).
+
+### 38.2 수학적 배경
+
+**전처리 경사 (preconditioned gradient)**:
+
+softmax 가중치를 $w_i = \exp(-(S_i - \min_j S_j)/\lambda) / \sum_j \exp(\cdots)$ 라 하면,
+
+$$\tilde{g} = \sum_i w_i\, \varepsilon_i, \qquad \mu \leftarrow \mu + \alpha\, \tilde{g}$$
+
+$\alpha = 1$, 1스텝이면 표준 MPPI 가중 평균 업데이트와 동일하다. 여기서 공분산 $\Sigma$가 자연스러운 전처리 행렬(preconditioner) 역할을 한다.
+
+**공분산 전처리 적응 (Gibbs-tilted 경험 공분산)**:
+
+```
+var_w = Σ_i w_i (U_i - μ)²          (per-dim 가중 분산, 시간축 평균)
+target_scale = std_w / σ_base
+σ_scale ← (1-β) σ_scale + β · target_scale       (EMA)
+σ_scale ← clip(σ_scale, cov_min_scale, cov_max_scale)
+```
+
+→ 비용 지형이 평탄한 곳에서는 탐색 분산을 키우고, 가파른 곳에서는 줄인다.
+
+### 38.3 알고리즘
+
+```
+매 제어 주기:
+  μ ← prev_U
+  for it in range(n_grad_steps):
+    1. 현재 σ로 노이즈 샘플링 (resample_each_step이면 매 스텝 재샘플)
+    2. U_k = μ + ε_k, clip → rollout → cost → softmax 가중치 w
+    3. 전처리 경사 g̃ = Σ w_i ε_i
+       (normalize_gradient 시 g̃ ← g̃ · K/ESS)
+    4. μ ← μ + α · g̃, clip
+    5. adapt_covariance 시 Gibbs-tilted 공분산으로 σ_scale EMA 갱신
+  U ← μ; receding horizon 시프트 → 첫 제어 반환
+```
+
+### 38.4 구현
+
+```python
+# 컨트롤러
+PGDMPPIController(MPPIController)
+  |-- compute_control(): n_grad_steps 전처리 경사 업데이트 → 시프트
+  |-- _sample_noise(): 현재(적응) σ로 노이즈 샘플링
+  |-- _adapt_covariance(): Gibbs-tilted 경험 공분산 → σ_scale EMA
+  +-- get_pgd_statistics(): grad_norm 히스토리, sigma_scale
+
+# 파라미터
+PGDMPPIParams(MPPIParams)
+  |-- step_size: 1.0            # 전처리 경사 스텝 α (1.0 = 표준 MPPI)
+  |-- n_grad_steps: 1          # 제어 주기당 경사 스텝 수
+  |-- resample_each_step: True # 스텝마다 노이즈 재샘플링
+  |-- adapt_covariance: False  # Gibbs-tilted 공분산 전처리
+  |-- cov_step_size: 0.2       # 공분산 적응 비율 β (EMA)
+  |-- cov_min_scale: 0.25      # 공분산 스케일 하한 (붕괴 방지)
+  |-- cov_max_scale: 4.0       # 공분산 스케일 상한 (발산 방지)
+  +-- normalize_gradient: False # 경사를 ESS로 정규화
+```
+
+`info["pgd_stats"]`에 `n_grad_steps`, `step_size`, `grad_norm`, `sigma_scale`가 기록된다.
+
+### 38.5 기존 변형 대비
+
+| 특성 | Vanilla MPPI | CMA-MPPI | GN-MPPI | PGD-MPPI |
+|------|-------------|----------|---------|----------|
+| 업데이트 해석 | 가중 평균 | 공분산 적응 | 2차 가우스-뉴턴 | **전처리 1차 경사** |
+| 주기당 반복 | 1 | 1 | 1 (+라인서치) | **n_grad_steps** |
+| 스텝 크기 | 고정(=1) | 고정 | 라인서치 | **명시적 α** |
+| 공분산 적응 | 없음 | 진화 전략 | 없음 | **Gibbs-tilted EMA** |
+| 기본값 동작 | — | 변형 | 변형 | **Vanilla와 동일** |
+
+PGD-MPPI의 핵심 기여는 MPPI를 **명시적 최적화 프레임(전처리 경사 하강)**으로 통일한 것이다. GN-MPPI가 2차 곡률을 사용하는 반면 PGD는 공분산을 전처리 행렬로 보는 1차 관점을 취하며, `step_size`와 `n_grad_steps`로 수렴 속도를 직접 제어한다. 기본값에서 Vanilla와 정확히 일치하므로 안전하게 일반화할 수 있다.
+
+---
+
+## 39. TR-MPPI (Trust Region MPPI)
+
+**Reference**: arXiv:2605.07801, "Sampling-based Model Predictive Control Using Trust Regions" (2026)
+
+### 39.1 핵심 아이디어
+
+샘플링 기반 MPC의 proposal 업데이트가 한 스텝에 과도하게 이동하면 명목 궤적이 불안정해진다. **TR-MPPI**는 강화학습의 신뢰 영역(trust region, TRPO/PPO) 개념을 MPPI에 도입하여, **proposal 분포(가우시안 평균)의 업데이트를 KL 발산 경계 δ로 제약**한다. 추가로 공분산에 엔트로피 하한을 두어 조기 붕괴를 막고, 결정론적 LCD(localized cumulative distribution) 샘플링으로 샘플 효율을 높인다.
+
+```
+신뢰 영역 제약:  KL(q_new ‖ q_old) ≤ δ
+엔트로피 하한:   σ_d ≥ entropy_floor_scale · σ_base
+결정론적 샘플:   Halton 저불일치 수열 + 역정규 CDF
+```
+
+### 39.2 수학적 배경
+
+**평균 간 KL (고정 공분산 가우시안)**:
+
+$$\mathrm{KL}(q_{\text{new}} \,\|\, q_{\text{old}}) = \frac{1}{2}\sum_t \Delta\mu_t^\top \Sigma^{-1} \Delta\mu_t = \frac{1}{2}\left\lVert \frac{\Delta\mu}{\sigma}\right\rVert^2$$
+
+**신뢰 영역 투영**: 제안 업데이트 $\Delta\mu = \alpha \sum_i w_i \varepsilon_i$ 에 대해
+
+$$\mathrm{KL}_{\text{prop}} > \delta \;\Rightarrow\; \Delta\mu \leftarrow \Delta\mu \cdot \sqrt{\frac{\delta}{\mathrm{KL}_{\text{prop}}}}$$
+
+→ 제안된 스텝이 신뢰 영역을 벗어나면 정확히 경계 위로 축소(rescale)한다.
+
+**엔트로피 하한**: $H(q) = \tfrac{1}{2}\log\big((2\pi e)^n |\Sigma|\big) \ge H_{\min}$ 을 대각 $\sigma_d \ge$ `entropy_floor_scale`·$\sigma_{\text{base}}$ 로 클리핑.
+
+**LCD 결정론적 샘플**: $(N\cdot nu)$ 차원 Halton 점 $u$ 를 역정규 CDF로 변환
+
+$$\varepsilon = \sigma \cdot \Phi^{-1}(\text{halton}_d)$$
+
+동일 $K$에 대해 항상 같은 저분산 샘플을 반환하여 수렴이 안정적이다.
+
+### 39.3 알고리즘
+
+```
+매 제어 주기:
+  μ ← prev_U
+  for it in range(n_iters):
+    1. (Gaussian 또는 Halton-LCD) 노이즈 샘플링
+    2. U_k = μ + ε_k, clip → rollout → cost → softmax 가중치 w
+    3. 제안 Δμ = Σ w_i ε_i
+    4. KL_prop = ½ ‖Δμ/σ‖²
+       use_kl_bound & KL_prop > δ  ⇒  Δμ ← Δμ · sqrt(δ/KL_prop)
+    5. μ ← μ + Δμ, clip
+    6. adapt_covariance 시 가중 공분산 적응 + 엔트로피 하한 클리핑
+  U ← μ; receding horizon 시프트 → 첫 제어 반환
+```
+
+### 39.4 구현
+
+```python
+# 결정론적 LCD 샘플러
+HaltonLCDSampler(NoiseSampler)
+  |-- unit_samples(): (N·nu) Halton 점 → 역정규 CDF → 결정론적 표준정규 (K,N,nu)
+  +-- sample(): U + σ·z, clip
+
+# 컨트롤러
+TRMPPIController(MPPIController)
+  |-- compute_control(): n_iters 신뢰 영역 업데이트 → 시프트
+  |-- _sample_noise(): Gaussian 또는 LCD 노이즈
+  |-- _adapt_covariance(): 가중 공분산 + 엔트로피 하한(σ_floor) + 상한
+  +-- get_tr_statistics(): mean/max KL, scaled_fraction, sigma_scale
+
+# 파라미터
+TRMPPIParams(MPPIParams)
+  |-- trust_region_radius: 1.0       # KL 경계 δ (작을수록 보수적)
+  |-- use_kl_bound: True            # 신뢰 영역(KL) 평균 투영
+  |-- n_iters: 1                    # 주기당 신뢰 영역 반복 수
+  |-- use_deterministic_sampling: False # LCD(Halton) 결정론적 샘플링
+  |-- adapt_covariance: False       # 가중 경험 공분산 적응
+  |-- cov_step_size: 0.2            # 공분산 적응 비율 β
+  |-- entropy_floor_scale: 0.3      # σ_floor = scale·σ_base (엔트로피 하한)
+  +-- cov_max_scale: 4.0            # 공분산 스케일 상한
+```
+
+`info["tr_stats"]`에 `kl_divergence`, `trust_region_radius`, `step_scaled`, `deterministic`, `sigma_scale`가 기록된다.
+
+### 39.5 기존 변형 대비
+
+| 특성 | Vanilla MPPI | PGD-MPPI | dsMPPI | TR-MPPI |
+|------|-------------|----------|--------|---------|
+| 스텝 제약 | 없음 | step_size α | 없음 | **KL 경계 δ 투영** |
+| 공분산 붕괴 방지 | 없음 | min_scale | 없음 | **엔트로피 하한** |
+| 샘플링 | 가우시안 | 가우시안 | Halton/Sobol/sigma | **Halton-LCD (선택)** |
+| 안정성 보장 | 없음 | 약함 | 결정론적 | **신뢰 영역 단조** |
+
+TR-MPPI는 PGD-MPPI와 같이 MPPI를 최적화로 보지만, **스텝 크기를 고정하는 대신 KL 발산으로 적응적으로 제한**하여 큰 비용 변화에도 단조롭고 안정적인 수렴을 보장한다. dsMPPI의 결정론적 샘플링 아이디어를 Halton-LCD로 흡수하면서, 엔트로피 하한으로 탐색 분산이 조기에 붕괴되는 것을 막는다.
+
+---
+
+## 40. RF-MPPI (Reference-Free Spline MPPI)
+
+**Reference**: arXiv:2511.19204, "Reference-Free Sampling-Based Model Predictive Control" (2026)
+
+### 40.1 핵심 아이디어
+
+표준 MPPI는 $N$-스텝 제어 시퀀스를 직접 $K \times N \times nu$ 차원에서 샘플링하므로, 매끄러움을 얻으려면 많은 샘플(또는 후처리 필터)이 필요하다. **RF-MPPI**는 제어 시퀀스를 **저차원 큐빅 Hermite 스플라인**으로 파라미터화하여, 소수의 제어점(knot, $M \ll N$) 공간에서 섭동을 샘플링하고 매끄러운 $N$-스텝 제어로 보간한다.
+
+핵심은 **dual-space** 파라미터화 — 각 knot이 **위치(position)** 제어점과 **속도(velocity, Hermite 접선)** 제어점을 모두 가져, 풍부한 매끄러운 모션을 적은 샘플로 탐색한다. 매끄러움이 구조적으로 보장되므로 **GPU 없이 CPU에서 소수 샘플(K≈32~64)로 실시간** 동작한다.
+
+### 40.2 수학적 배경
+
+**큐빅 Hermite 기저**: 국소 좌표 $s \in [0,1]$, knot 간격 $\Delta\tau$ 에 대해
+
+$$h_{00} = 2s^3 - 3s^2 + 1, \quad h_{10} = s^3 - 2s^2 + s$$
+$$h_{01} = -2s^3 + 3s^2, \quad h_{11} = s^3 - s^2$$
+
+각 세그먼트 $[\tau_m, \tau_{m+1}]$ 에서 제어는
+
+$$u(t) = h_{00}\,p_m + \Delta\tau\, h_{10}\,v_m + h_{01}\,p_{m+1} + \Delta\tau\, h_{11}\,v_{m+1}$$
+
+선형 기저이므로 전체 시퀀스를 행렬 곱으로 벡터화:
+
+$$U = B_p\, P + B_v\, V \quad (B_p, B_v \in \mathbb{R}^{N\times M})$$
+
+**knot 공간 섭동 (저차원 탐색)**:
+
+$$P \mathrel{+}= \mathcal{N}(0, \sigma_p^2), \qquad V \mathrel{+}= \mathcal{N}(0, \sigma_v^2)$$
+
+**receding horizon warm-start**: 스플라인을 시간 $+1$ 만큼 이동하여 새 knot 위치/속도를 재추정 (도함수 기저 $dB_p, dB_v$ 로 속도 재추정).
+
+### 40.3 알고리즘
+
+```
+매 제어 주기:
+  1. knot 섭동 dP ~ N(0, σ_p²) (K,M,nu)
+     sample_velocity_knots 시 dV ~ N(0, σ_v²)
+  2. P_k = P + dP, V_k = V + dV
+  3. 매끄러운 제어 재구성 U_k = B_p P_k + B_v V_k (K,N,nu), clip
+  4. rollout → cost → softmax 가중치 w
+  5. knot 갱신: P ← P + Σ w_i dP_i, V ← V + Σ w_i dV_i
+     (clamp_endpoints_vel 시 양 끝 속도 0 고정)
+  6. spline_warm_shift 시 스플라인 시간 +1 이동하여 warm-start
+  첫 제어 U[0] 반환
+```
+
+### 40.4 구현
+
+```python
+# Hermite 스플라인 기저 (dual-space)
+HermiteSplineSampler
+  |-- _build_basis(): 위치/속도 기저 B_p, B_v (N×M) 사전 계산
+  |-- reconstruct_batch(): (K,M,nu) → (K,N,nu) 벡터화 보간
+  |-- eval_shifted_knots(): 시간 시프트 후 knot 위치/속도 재추정 (warm-start)
+  +-- _build_deriv_basis(): du/dt 기저 (속도 재추정용)
+
+# 컨트롤러
+RFMPPIController(MPPIController)
+  |-- compute_control(): knot 섭동 → 보간 → MPPI 가중 → warm-shift
+  +-- reset(): 명목 knot P, V 초기화
+
+# 파라미터
+RFMPPIParams(MPPIParams)
+  |-- n_knots: 6                # 스플라인 제어점 수 M (M << N)
+  |-- sample_velocity_knots: True # 속도 knot도 샘플링 (dual-space)
+  |-- knot_sigma_pos: None       # 위치 knot 섭동 σ (None → sigma)
+  |-- knot_sigma_vel: 0.3        # 속도 knot 섭동 σ
+  |-- clamp_endpoints_vel: False # 시작/끝 속도 knot 0 고정
+  +-- spline_warm_shift: True    # receding horizon knot 시프트
+```
+
+`info["rf_stats"]`에 `n_knots`, `dual_space`, `knot_pos_norm`, `knot_vel_norm`이 기록된다.
+
+### 40.5 기존 변형 대비
+
+| 특성 | Vanilla MPPI | Spline-MPPI | LP-MPPI | RF-MPPI |
+|------|-------------|-------------|---------|---------|
+| 파라미터화 | N-스텝 직접 | 위치 스플라인 | N-스텝 + LPF | **위치+속도 Hermite (dual)** |
+| 매끄러움 | 없음 | 구조적 | 후처리 필터 | **구조적 (접선 제어)** |
+| 샘플 요구 | 많음 | 중간 | 많음 | **적음 (K≈32~64)** |
+| warm-start | 시프트 | 시프트 | 시프트 | **스플라인 시간 이동** |
+
+RF-MPPI는 Spline-MPPI의 위치 제어점 파라미터화를 **속도(접선) 제어점까지 확장한 dual-space**로 발전시킨 것이다. LP-MPPI가 사후 저역통과 필터로 매끄러움을 얻는 것과 달리, RF-MPPI는 매끄러움을 기저 구조로 보장한다. 실측 벤치마크에서 **K=24 few-sample 조건에서 RF-dual의 MSSD가 Vanilla 대비 약 13배 매끄러우면서 RMSE는 1.83→0.32로 개선**되었다.
+
+---
+
+## 41. Step-MPPI (Single-Step MPPI via DPC)
+
+**Reference**: arXiv:2604.01539, "Toward Single-Step MPPI via Differentiable Predictive Control" (2026)
+
+### 41.1 핵심 아이디어
+
+긴 호라이즌 MPPI는 매 스텝 $N$-스텝 rollout을 반복하므로 계산 비용이 크다. **Step-MPPI**는 **신경망이 MPPI proposal 분포(평균 잔차 + 대각 공분산 스케일)를 학습**하여, 장기 호라이즌 MPC 목적을 학습 시점에 주입한다. 런타임에는 **짧은(단일) 스텝 lookahead만으로 장기 계획 정보를 암묵적으로 활용**하여 초저지연 제어를 달성한다 (Differentiable Predictive Control, DPC).
+
+```
+학습 시점:  장기 호라이즌 MPC 목적(비용+제약+최대 엔트로피)을 proposal 네트워크에 주입
+런타임:     단일 스텝 lookahead + 학습된 proposal → 장기 계획 근사
+```
+
+### 41.2 수학적 배경
+
+**proposal 네트워크**: 특징 $\varphi = [\,x,\; \text{ref}[1]-x,\; \text{ref}[-1]-x\,]$ 에 대해
+
+$$(\Delta\mu_\theta(\varphi),\; \log\sigma_\theta(\varphi)) = \mathrm{NN}(\varphi)$$
+
+**런타임 평균/공분산**:
+
+$$\mu = U_{\text{warm}} + \text{blend}\cdot\Delta\mu_\theta, \qquad \sigma_{\text{eff}} = \sigma_{\text{base}}\cdot \exp(\log\sigma_\theta)$$
+
+$$U_k = \mu + \mathrm{diag}(\sigma_{\text{eff}})\,\varepsilon_k, \quad \varepsilon_k \sim \mathcal{N}(0, I)$$
+
+**자기지도 학습 손실 (최대 엔트로피 DPC)**:
+
+$$L(\theta) = \mathbb{E}\big[\lVert \Delta\mu_\theta - (U^\ast - U_{\text{warm}})\rVert^2\big] - \tau\cdot\textstyle\sum \log\sigma_\theta$$
+
+여기서 $U^\ast$ 는 단일 스텝 MPPI가 산출한 가중 평균 해, $\tau$ = `entropy_weight` 는 공분산 붕괴를 막는 최대 엔트로피 정규화 항이다.
+
+**zero-init 출력층**: $\Delta\mu_\theta \approx 0$, $\sigma \approx \sigma_{\text{base}}$ → 학습 전에는 순수 Vanilla MPPI로 graceful 퇴화. torch 부재 시에도 Vanilla로 동작.
+
+### 41.3 알고리즘
+
+```
+매 제어 주기:
+  1. 특징 φ = [state, ref[1]-state, ref[-1]-state]
+  2. 네트워크 → (Δμ_θ, logσ_θ)
+     μ = U_warm + blend·Δμ_θ,  σ_eff = σ_base·exp(logσ_θ)
+     (learn_covariance=False면 σ_eff = σ_base)
+  3. for _ in range(lookahead_steps):   # 보통 1 (single-step)
+       U_k = μ + σ_eff·ε_k → rollout → cost → softmax → μ += Σ w_i ε_i
+  4. solution U* 저장 → 첫 제어 반환
+  5. online_training 시:
+       버퍼에 (φ, U*−U_warm) 저장
+       train_interval마다 자기지도 학습 (MSE 잔차 − entropy_weight·Σlogσ)
+```
+
+### 41.4 구현
+
+```python
+# proposal 네트워크 (zero-init 출력)
+ProposalNetwork(nn.Module)
+  |-- backbone: MLP (Tanh)
+  |-- mean_head: (N·nu) 평균 잔차 (zero-init)
+  +-- logstd_head: (nu) 대각 공분산 로그 (zero-init)
+
+# 자기지도 학습기 / 버퍼
+ProposalTrainer  -- MSE 잔차 − entropy_weight·Σlogσ (최대 엔트로피)
+StepExperienceBuffer  -- (φ, 잔차 타깃) 링 버퍼 + 비용 기록
+
+# 컨트롤러
+StepMPPIController(MPPIController)
+  |-- compute_control(): 특징 → proposal → 단일 스텝 최적화 → 학습
+  |-- _build_features(): φ = [state, ref[1]-state, ref[-1]-state]
+  |-- _net_proposal(): 네트워크 → (mean_delta, sigma_eff)
+  +-- get_step_statistics(): use_net, buffer_size, train_count, last_loss
+
+# 파라미터
+StepMPPIParams(MPPIParams)
+  |-- lookahead_steps: 1         # 런타임 lookahead (1 = single-step)
+  |-- proposal_hidden_dim: 64    # proposal MLP 은닉 차원
+  |-- proposal_n_layers: 2       # proposal MLP 레이어 수
+  |-- use_learned_proposal: True # 학습 proposal 사용 (False → Vanilla)
+  |-- blend_ratio: 0.7           # μ_θ와 이전 해 혼합 비율
+  |-- learn_covariance: True     # 대각 공분산 σ_θ 학습
+  |-- online_training: True      # 온라인 자기지도 학습
+  |-- proposal_lr: 1e-3          # 학습률
+  |-- train_interval: 10         # 학습 주기 (스텝)
+  |-- train_batch_size: 64       # 미니배치 크기
+  |-- buffer_size: 2000          # 경험 버퍼 크기
+  |-- min_train_samples: 64      # 학습 시작 최소 샘플
+  |-- entropy_weight: 0.01       # 최대 엔트로피 정규화 τ
+  +-- elite_frac: 0.1            # 엘리트 샘플 비율
+```
+
+`info["step_stats"]`에 `use_net`, `lookahead_steps`, `proposal_delta_norm`, `sigma_eff`, `buffer_size`, `train_count`가 기록된다.
+
+### 41.5 기존 변형 대비
+
+| 특성 | Vanilla MPPI | T-MPPI | TD-MPPI | Step-MPPI |
+|------|-------------|--------|---------|-----------|
+| 학습 대상 | 없음 | 초기화 U_init | terminal value V(x_T) | **proposal 평균+공분산** |
+| 입력 | — | state/control 히스토리 | terminal 상태 | **state+ref 특징** |
+| 호라이즌 | 긴 N | 긴 N | 짧은 N + V | **짧은 N + DPC proposal** |
+| 학습 신호 | — | 근최적 U | TD value | **MPC 목적 + 최대 엔트로피** |
+| zero-init 퇴화 | — | 있음 | — | **있음 (Vanilla)** |
+
+Step-MPPI는 T-MPPI와 같이 신경망으로 MPPI를 가속하지만, T-MPPI가 히스토리로 **초기화(평균)만** 예측하는 데 비해 **평균 잔차와 대각 공분산을 함께 출력**하고 **최대 엔트로피 DPC** 목적으로 학습한다. TD-MPPI가 terminal value로 짧은 호라이즌을 보완하는 것과 달리, Step-MPPI는 장기 MPC 목적을 proposal 분포 자체에 증류(distill)하여 단일 스텝 lookahead로 장기 계획을 근사한다.
+
+---
+
+## 42. 변형 선택 가이드
 
 ### 의사결정 트리
 
@@ -5840,3 +6336,13 @@ MPPI 변형들은 대부분 **직교적(orthogonal)**으로, 여러 기법을 �
 26. Jung, J., Estornell, A. & Everett, M. (2025). "Contingency Model Predictive Path Integral Control." L4DC. arXiv:2412.09777.
 27. Borquez, J. et al. (2025). "DualGuard-MPPI: Safety Value Function Based Dual-Guard MPPI." IEEE RA-L. arXiv:2502.01924.
 28. Vahs, M. et al. (2026). "Parameter-Robust Model Predictive Path Integral Control." arXiv:2601.02948.
+
+### Koopman-MPPI
+29. Koopman, B. O. (1931). "Hamiltonian Systems and Transformation in Hilbert Space." Proceedings of the National Academy of Sciences.
+30. Williams, M. O. et al. (2015). "A Data-Driven Approximation of the Koopman Operator: Extending Dynamic Mode Decomposition." Journal of Nonlinear Science.
+
+### PGD / TR / RF / Step-MPPI
+31. (2026). "Model Predictive Path Integral Control as Preconditioned Gradient Descent." arXiv:2603.24489.
+32. (2026). "Sampling-based Model Predictive Control Using Trust Regions." arXiv:2605.07801.
+33. (2026). "Reference-Free Sampling-Based Model Predictive Control." arXiv:2511.19204.
+34. (2026). "Toward Single-Step MPPI via Differentiable Predictive Control." arXiv:2604.01539.
