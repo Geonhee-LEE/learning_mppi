@@ -112,6 +112,50 @@ ring buffer + elite selection, zero-init graceful degradation 등
 
 ---
 
+## 코드 워크스루 (06–08) — 이론에서 구현으로
+
+01–05가 "왜 이 수식인가"를 다뤘다면, 06–08은 **실제 소스를 함수 단위로
+해부**한다. 모든 발췌는 file:line 참조가 붙고, 형식은 공통이다:
+**코드 발췌 → 해설 → 왜 이렇게 구현했나(트레이드오프) → 흔한 실수**.
+
+### [06_CODE_WALKTHROUGH_CORE.md](06_CODE_WALKTHROUGH_CORE.md) — 핵심 파이프라인
+
+한 제어 사이클의 콜 그래프(Simulator → compute_control → sample → rollout →
+cost → weights)를 shape 흐름 `(K,N,nu)→(K,N+1,nx)→(K,)`와 함께 추적한다.
+`RobotModel` ABC의 벡터화 규약, `compute_control` 라인 단위 해설(warm start의
+0-채움, min-shift 수치 안정화, 시프트 후 `U[0]` 반환 quirk), seed=None 재현성
+함정, 커스텀 비용/샘플러 작성 체크리스트. §9의 Top-K MPPI 실습은 실제 실행
+검증됨 (RMSE 0.157 m).
+
+- **선수 지식**: 02편 §3–6
+- **핵심 소스**: `base_mppi.py`, `sampling.py`, `cost_functions.py`,
+  `dynamics_wrapper.py`, `simulation/simulator.py`
+
+### [07_CODE_WALKTHROUGH_VARIANTS.md](07_CODE_WALKTHROUGH_VARIANTS.md) — 변형 확장 패턴
+
+43개 변형을 변형별이 아니라 **확장 패턴별**(A: `_compute_weights` 교체,
+B: `compute_control` 전체 교체/DIAL, C: 샘플러 교체, D: 최적화 관점,
+E: 피드백 결합, F: 학습 결합)로 해부한다. Log/Tsallis/CVaR, DIAL/CMA/Biased,
+LP/Halton/Hermite, PGD/GN, Tube/Riccati, Step-MPPI 대표 코드 발췌 +
+새 변형 추가 시 파일 8종 체크리스트 (실제 커밋 diff-stat 인용).
+
+- **선수 지식**: 06편, 02편 §7
+- **핵심 소스**: 각 변형 파일 + `all_37_variants_benchmark.py` 레지스트리
+
+### [08_CODE_WALKTHROUGH_SAFETY.md](08_CODE_WALKTHROUGH_SAFETY.md) — 안전 스택 구현
+
+3층위(비용/필터/게이트)가 코드 어디에 끼어드는지부터, CBF 비용의 배치
+벡터화 shape 추적, HOCBF 캐스케이드와 `detect_relative_degree`의 유한차분
+g(x) 추출, CLF-CBF-QP의 3-경로 분기, Shield의 ESS 붕괴 지점 코드 지목,
+Gatekeeper 상태 기계까지. §10의 사각형 장애물(BoxBarrierCost) 실습은 실제
+실행 검증됨 (침입 0회) — local minimum 실패 사례 재현 포함.
+
+- **선수 지식**: 03·04편, 06편
+- **핵심 소스**: `cbf_cost.py`, `hocbf_cost.py`, `stochastic_cbf.py`,
+  `clf_cbf_qp.py`, `shield_mppi.py`, `gatekeeper.py`, `dualguard_mppi.py`
+
+---
+
 ## 부록 안내 — 각 문서의 심화 학습 부록 (A–E)
 
 01–05 각 문서의 말미에는 본문을 넘어 스스로 공부를 이어갈 수 있도록
