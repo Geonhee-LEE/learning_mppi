@@ -19,16 +19,17 @@
  데모 1회 실행     02 MPPI 유도          변형 하나 만들기      04 고급 안전
                                                            08 안전 코드
 
-                  Phase 4                       Phase 5
-               →  변형/학습 심화(1~2주)      →   연구 확장(상시)
-                  07 변형 패턴                  부록 B 동향 → 논문 읽기
-                  05 생성 모델                  자기 변형 구현/벤치마크
+                  Phase 4                  Phase 5                 Phase 6
+               →  변형/학습 심화(1~2주)   → 잔차·실로봇 배포(1~2주) → 연구 확장(상시)
+                  07 변형 패턴              09 잔차 제어/동역학       부록 B 동향 → 논문
+                  05 생성 모델              10 sim-to-real 배포       자기 변형 벤치마크
 ```
 
-- 표준 경로 기준 **약 5~7주** (하루 1~2시간). 급하면 Phase 1→2→3만 해도
+- 표준 경로 기준 **약 6~9주** (하루 1~2시간). 급하면 Phase 1→2→3만 해도
   repo를 다루는 데 충분합니다.
 - **트랙 선택**: 안전이 급하면 Phase 2 후 3으로 (05·07은 뒤로), 학습/생성
-  모델이 급하면 Phase 2 후 4로 (03·04는 뒤로). Phase 1–2는 공통 필수입니다.
+  모델이 급하면 Phase 2 후 4로 (03·04는 뒤로). 실로봇 배포가 목표면 Phase
+  2→4→5(09·10)로 직행 가능. Phase 1–2는 공통 필수입니다.
 
 ---
 
@@ -180,7 +181,43 @@
 
 ---
 
-## Phase 5 — 연구 확장 (상시)
+## Phase 5 — 잔차 학습과 실로봇 배포 (1~2주)
+
+**목표**: 학습된 잔차(residual)를 실제 로봇으로 가져가는 전 과정을 이해하고,
+데이터→학습→검증→배포 파이프라인을 직접 돌려본다.
+
+### 5-1. [09_RESIDUAL_MPC_MPPI.md](09_RESIDUAL_MPC_MPPI.md) (2~3일)
+
+- [ ] §1: 두 개의 잔차 구분 — 잔차 제어(정책+δu) vs 잔차 동역학(f_phys+f_learned)
+- [ ] §2: ResidualDynamics 코드 해설 — **학습 타겟은 총 동역학이 아니라 잔차**
+  (= (next−state)/dt − f_phys)라는 핵심 주의
+- [ ] §3: Residual-MPPI(정책 nominal + KL 페널티), §5 흔한 실수
+- [ ] MAML/EKF/L1/ALPaCA를 "적응형 잔차"로 보는 관점(§2 표)
+
+### 5-2. [10_SIM_TO_REAL_DEPLOYMENT.md](10_SIM_TO_REAL_DEPLOYMENT.md) (2~3일)
+
+- [ ] §2 데이터 구성(잔차 타겟·정규화·커버리지), §3 학습 방법 결정표
+- [ ] §4 적용(ResidualDynamics를 MPPI에 꽂기, ROS2 배선, 실시간 예산·안전 계층)
+- [ ] §5 실기 적용 전 게이트 체크리스트
+
+### 5-3. E2E 파이프라인 실행 (1~2일)
+
+- [ ] 3개 모델에서 데이터→학습→갭검증을 직접 실행:
+  ```bash
+  PYTHONPATH=. python examples/learned/residual_sim2real_pipeline.py --model diffdrive --no-plot
+  PYTHONPATH=. python examples/learned/residual_sim2real_pipeline.py --model ackermann --no-plot
+  PYTHONPATH=. python examples/learned/residual_sim2real_pipeline.py --model swerve --no-plot
+  ```
+- [ ] Residual RMSE < Baseline 확인, `results/residual_sim2real/*.json` 확인
+- [ ] 잔차 타겟의 각도 wrap 버그(§2.2, 10편 §1)가 왜 학습을 망가뜨리는지 이해
+
+**자가 점검**: `ResidualDynamics(base, learned_model=NN)`에서 NN이 무엇을 출력하도록
+학습해야 하는지, 왜 총 동역학이 아닌지 설명할 수 있는가? 실기 적용 전 반드시 통과해야
+하는 게이트 3가지(성능/안전/모델 불일치)를 말할 수 있는가?
+
+---
+
+## Phase 6 — 연구 확장 (상시)
 
 **목표**: 이 시리즈를 발판으로 논문/구현 연구로 나아간다.
 
@@ -203,6 +240,7 @@
 | 특정 변형의 수식이 궁금 | [MPPI_THEORY.md](../MPPI_THEORY.md) (변형 사전) |
 | 특정 안전 기법의 수식 | [SAFETY_THEORY.md](../SAFETY_THEORY.md) (안전 사전) |
 | 코드가 이론과 달라 보임 | 06/07/08 워크스루의 "quirk" 및 "흔한 실수" 절 |
+| 잔차 학습/실로봇 배포가 궁금 | [09](09_RESIDUAL_MPC_MPPI.md)(잔차 이론) + [10](10_SIM_TO_REAL_DEPLOYMENT.md)(배포) + E2E 스크립트 |
 | 실행이 안 되거나 이상함 | 각 부록 E FAQ 포인터, [../TUTORIALS.md](../TUTORIALS.md) |
 | 어떤 기법을 골라야 할지 | SAFETY_THEORY §21 선택 가이드, VARIANTS_X_MODELS_REPORT.md Key Findings (크로스 벤치마크 PR) |
 | 최신 흐름이 궁금 | README.md "최신 동향 한눈에" + 각 부록 B |
@@ -218,7 +256,8 @@
 | 2. 코드로 확인 (06 + 실험) | | | |
 | 3. 안전 제어 (03, 04, 08) | | | |
 | 4. 심화 (07, 05) | | | |
-| 5. 연구 확장 | | | |
+| 5. 잔차·실로봇 배포 (09, 10 + E2E) | | | |
+| 6. 연구 확장 | | | |
 
 *작성: 2026-07 — learning_mppi 공부 자료 시리즈의 진입점. 문서 구성이
 바뀌면 이 커리큘럼도 함께 갱신하세요.*

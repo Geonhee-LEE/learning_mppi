@@ -164,6 +164,41 @@ Gatekeeper 상태 기계까지. §10의 사각형 장애물(BoxBarrierCost) 실�
 
 ---
 
+## 잔차 학습과 실로봇 배포 (09–10) — 이론에서 실기로
+
+06–08이 시뮬레이션 코드를 해부했다면, 09–10은 **학습된 잔차를 실제 로봇으로
+가져가는 길**을 다룬다. 09는 두 종류의 잔차를 이론+코드로, 10은 데이터→학습→
+검증→배포의 실전 플레이북을 제공한다.
+
+### [09_RESIDUAL_MPC_MPPI.md](09_RESIDUAL_MPC_MPPI.md) — 잔차 제어와 잔차 동역학
+
+이 저장소의 두 가지 "잔차"를 구분해 해부한다: **잔차 제어**(Residual-MPPI,
+사전 정책 nominal + MPPI가 δu만 최적화 + KL 페널티, Wang et al. ICLR 2025)와
+**잔차 동역학**(ResidualDynamics, f_total = f_physics + f_learned — 물리 모델에
+학습된 보정을 더함). 수식↔코드 매핑, `learned_model=` 자동 연결의 함정(학습
+타겟은 총 동역학이 아니라 잔차), MAML/EKF/L1/ALPaCA를 "적응형 잔차"로 보는
+관점까지.
+
+- **선수 지식**: 06편(코드 규약), 05편(학습 결합) 권장
+- **핵심 소스**: `residual_mppi.py`, `ancillary_policies.py`,
+  `models/learned/residual_dynamics.py`
+
+### [10_SIM_TO_REAL_DEPLOYMENT.md](10_SIM_TO_REAL_DEPLOYMENT.md) — Sim-to-Real 배포 플레이북
+
+잔차 MPPI를 실제 로봇에 올리기 위한 4대 축(테스트/데이터 구성/학습 방법/적용
+방법)을 모델별(DiffDrive·Ackermann·Swerve)로 정리한다. 잔차 타겟 구성과
+정규화, 오프라인/온라인/무학습 적응의 선택 기준, ROS2·nav2 배선과 실시간 예산,
+그리고 실기 적용 전 게이트 체크리스트. E2E 스크립트
+[`residual_sim2real_pipeline.py`](../../examples/learned/residual_sim2real_pipeline.py)로
+데이터→학습→갭검증 워크플로우를 3개 모델에서 실증(Residual RMSE가 Baseline
+대비 19~56% 개선, swerve는 Oracle에 근접).
+
+- **선수 지식**: 09편, 06편, 04·08편(안전 계층)
+- **핵심 소스**: `learning/` 전체, `ros2/`, `configs/mppi_nav2.yaml`,
+  `examples/learned/residual_sim2real_pipeline.py`
+
+---
+
 ## 부록 안내 — 각 문서의 심화 학습 부록 (A–E)
 
 01–05 각 문서의 말미에는 본문을 넘어 스스로 공부를 이어갈 수 있도록
