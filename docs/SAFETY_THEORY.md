@@ -1,6 +1,6 @@
 # 안전 제어 심층 이론 가이드
 
-> **대상 독자**: CBF(Control Barrier Function) 이론과 22종 안전 기법의 수학적 기초를 이해하고자 하는 대학원생 및 연구자
+> **대상 독자**: CBF(Control Barrier Function) 이론과 27종 안전 기법의 수학적 기초를 이해하고자 하는 대학원생 및 연구자
 >
 > **구현 참조**: 모든 수식은 `mppi_controller/controllers/mppi/` 내 실제 코드와 1:1 대응
 
@@ -22,7 +22,13 @@
 12. [Conformal Prediction + CBF](#12-conformal-prediction--cbf)
 13. [DIAL + Safety 결합](#13-dial--safety-결합)
 14. [Chance Constraint (C2U 연계)](#14-chance-constraint-c2u-연계)
-15. [안전 기법 선택 가이드](#15-안전-기법-선택-가이드)
+15. [cbfkit-inspired 확장 개요](#15-cbfkit-inspired-확장-개요)
+16. [HOCBF (High-Order CBF)](#16-hocbf-high-order-cbf)
+17. [Stochastic CBF (Itô 보정)](#17-stochastic-cbf-itô-보정)
+18. [Risk-Aware Path-Integral CBF](#18-risk-aware-path-integral-cbf)
+19. [Robust CBF (유계 외란)](#19-robust-cbf-유계-외란)
+20. [CLF-CBF-QP (Native)](#20-clf-cbf-qp-native)
+21. [안전 기법 선택 가이드](#21-안전-기법-선택-가이드)
 
 ---
 
@@ -340,6 +346,8 @@ HOCBF 제약: ψ̇_{r-1} + α_r(ψ_{r-1}) ≥ 0
 **본 프로젝트에서는** 기구학 모델(상대 차수 1)을 주로 사용하므로
 표준 CBF를 적용한다. 동역학 모델에서는 HOCBF 또는
 가상 제어(v, ω를 제어 입력으로 취급)를 사용한다.
+HOCBF의 완전한 유도와 구현(`HOCBFCost`, `HOCBFFilter`)은
+[16장](#16-hocbf-high-order-cbf)에서 다룬다.
 
 ---
 
@@ -2587,22 +2595,986 @@ r_eff(m)↑
 
 ---
 
-## 15. 안전 기법 선택 가이드
+## 15. cbfkit-inspired 확장 개요
+
+15~20장은 Toyota Research Institute의 JAX 기반 CBF 툴박스
+**cbfkit** (Black, Ubellacker et al., arXiv:2404.07158)에서 5종 안전 기법을
+순수 numpy로 포팅한 결과를 다룬다. 기존 22종 안전 기법(2~14장)이
+커버하지 못한 세 가지 공백을 채운다:
+
+```
+공백 1: 상대 차수 ≥ 2
+  기존 barrier 비용은 모두 "h의 1차 차분이 제어에 반응"을 가정.
+  5D 동역학 모델(제어 = 가속도 [a, α])에서 위치 barrier는
+  ∇h·g(x) = 0 → 1차 CBF 조건이 제어가 한 스텝 안에 바꿀 수 있는
+  것을 아무것도 제약하지 못함.
+  → 16장 HOCBF (지수형 캐스케이드)
+
+공백 2: 원리적 확률 보장
+  기존 노이즈 대응은 휴리스틱 (추가 마진, Tube MPC).
+  P(min_t h < 0) ≤ ρ 같은 명시된 확률 한계가 없었음.
+  → 17장 Stochastic CBF, 18장 Risk-Aware CBF, 19장 Robust CBF
+
+공백 3: 네이티브 QP 베이스라인
+  repo 표준 인터페이스 compute_control(state, ref) → (u, info)를
+  따르는 독립 CLF-CBF-QP 컨트롤러가 없어 샘플링 기반 안전과의
+  head-to-head 비교가 불가능했음.
+  → 20장 CLF-CBF-QP
+```
+
+### 공통 벤치마크 설정
+
+16~20장에서 인용하는 모든 수치는 다음 공통 설정에서 나온 것이다
+(`examples/comparison/cbfkit_inspired_benchmark.py`,
+결과 JSON: `results/cbfkit_inspired/*.json`):
+
+```
+레퍼런스: 원형 r = 2.0 m (v_ref = 1.0 m/s)
+장애물:   r = 0.3 m 3개 — 경로 "위" 90°/210°/330° 지점
+공통 파라미터 (기법별 튜닝 없음):
+  K = 512, N = 20, dt = 0.05, λ = 1.0
+  CBF α = 0.3, barrier weight = 1000, safety margin = 0.1
+```
+
+| 시나리오 | 모델 | 노이즈 | 시드 | 목적 |
+|---------|------|--------|------|------|
+| A. static_kin | 기구학 3D (rd=1) | 없음 | 1 | 기준선 |
+| B. dynamic_rd2 | 동역학 5D 가속도 제어 (rd=2) | 없음 | 1 | HOCBF 홈그라운드 |
+| C. stochastic | 기구학 3D | per-step std [0.05, 0.05, 0.02] | 3 | 확률/robust 보장 |
+| D. risk_sweep | 기구학 3D | C와 동일 | 3 | ρ ∈ {0.5, 0.2, 0.1, 0.05, 0.01} 스윕 |
+
+메트릭: 위치 RMSE, 최소 클리어런스(dist − r_obs, 마진 미포함),
+충돌 스텝 수(클리어런스 < 0), 평균 solve 시간.
+
+### 파일 맵
+
+| 기법 | 파일 | 클래스 |
+|------|------|--------|
+| HOCBF | `hocbf_cost.py` | `HOCBFCost`, `HOCBFFilter`, `detect_relative_degree` |
+| Stochastic CBF | `stochastic_cbf.py` | `StochasticCBFCost` |
+| Risk-Aware CBF | `stochastic_cbf.py` | `RiskAwareCBFCost` |
+| Robust CBF | `robust_cbf_margin.py` | `RobustCBFCost` |
+| CLF-CBF-QP | `clf_cbf_qp.py` | `CBFCLFQPSolver`, `CLFCBFQPController`, `CBFOnlyQPController` |
+
+테스트: `tests/test_cbfkit_inspired.py` (42) + `tests/test_clf_cbf_qp.py` (25).
+실습 튜토리얼은 [docs/TUTORIALS.md 12장](TUTORIALS.md#12-cbfkit-inspired-안전-기법-실습) 참조.
+
+---
+
+## 16. HOCBF (High-Order CBF)
+
+### 문제
+
+제어가 **가속도 레벨**인 동역학 모델에서, 위치 barrier에 대한
+1차 CBF 조건은 제어를 전혀 제약하지 못한다. 왜 그런가?
+
+### 상대 차수 재방문: 5D 동역학 모델에서의 구체적 유도
+
+1.6절의 상대 차수 개념을 동역학 Differential Drive
+(`DifferentialDriveDynamic`, 상태 [x, y, θ, v, ω], 제어 [a, α])에서
+Lie 미분을 끝까지 전개해 확인한다.
+
+**동역학 (제어-어파인 분해 ẋ = f(x) + g(x)·u)**:
+```
+f(x) = [v·cosθ,  v·sinθ,  ω,  -c_v·v,  -c_ω·ω]ᵀ     (drift)
+
+g(x) = ⎡0  0⎤
+       ⎢0  0⎥
+       ⎢0  0⎥    (a 열: v̇ 에만, α 열: ω̇ 에만 작용)
+       ⎢1  0⎥
+       ⎣0  1⎦
+```
+
+**1차 Lie 미분 — 제어 권한 없음 (L_g h = 0)**:
+
+barrier h = ‖p − p_o‖² − r² = Δx² + Δy² − r² (Δx = x − x_o 등)에 대해:
+```
+∇h = [2Δx, 2Δy, 0, 0, 0]
+
+L_g h = ∇h · g = [2Δx·0 + 2Δy·0 + 0 + 0 + 0,  ...] = [0, 0]
+```
+∇h가 위치 성분에만 비영인데 g(x)는 속도 성분(4, 5번째 행)에만
+비영이므로 내적이 항상 0. 즉 **ḣ에 u가 나타나지 않는다**:
+```
+ḣ = L_f h = 2Δx·v·cosθ + 2Δy·v·sinθ = 2v·(Δx·cosθ + Δy·sinθ)
+```
+
+**2차 Lie 미분 — 여기서 처음 u가 등장**:
+```
+∇(L_f h) = [2v·cosθ,  2v·sinθ,  2v·(−Δx·sinθ + Δy·cosθ),
+            2(Δx·cosθ + Δy·sinθ),  0]
+
+L_g L_f h = ∇(L_f h) · g = [2(Δx·cosθ + Δy·sinθ),  0]
+```
+선가속도 a의 계수 2(Δx·cosθ + Δy·sinθ) = 2·e·t̂ (e = p − p_o,
+t̂ = heading 방향)는 일반적으로 비영 → **상대 차수 2**.
+
+> 주의: e ⊥ t̂인 순간(장애물을 정확히 측면에 둔 상태)에는
+> L_g L_f h의 a-성분도 0이 되고, 각가속도 α는 3차 미분에서야
+> 등장한다. 실무에서는 위반이 임박한 상태(정면 접근)에서 e·t̂ ≠ 0이므로
+> rd=2 캐스케이드로 충분하다.
+
+기구학 모델(u = [v, ω])에서는 같은 계산이
+L_g h = [2(Δx·cosθ + Δy·sinθ), 0] ≠ 0 → 상대 차수 1이 된다.
+
+### 핵심 아이디어: Exponential-Form 캐스케이드
+
+1차 조건이 무력하므로, barrier의 **미분 자체를 새로운 barrier**로
+삼아 연쇄 조건을 만든다 (Xiao & Belta 2019의 exponential CBF):
+```
+ψ0(x) = h(x)
+ψ1(x) = ψ̇0(x) + λ1·ψ0(x)          (λ1 > 0)
+제약:   ψ̇1(x) + λ2·ψ1(x) ≥ 0       (λ2 > 0)
+```
+ψ̇1에는 ḧ이 포함되고, ḧ에는 L_g L_f h·u가 있으므로
+마지막 조건에서 비로소 u가 제약된다.
+
+### 전방 불변성 증명 스케치
+
+**주장**: ψ1(x(0)) ≥ 0 이고 h(x(0)) ≥ 0 이면, 제약
+ψ̇1 + λ2·ψ1 ≥ 0을 만족하는 궤적에서 h(x(t)) ≥ 0 ∀t.
+
+**증명 (비교 보조정리 2회 적용)**:
+```
+1단계: ψ̇1 ≥ -λ2·ψ1  (제약)
+  → Grönwall/비교 보조정리: ψ1(t) ≥ ψ1(0)·e^{-λ2·t}
+  → ψ1(0) ≥ 0 이면 ψ1(t) ≥ 0  ∀t
+
+2단계: ψ1(t) ≥ 0 의 정의를 풀면 ψ̇0 ≥ -λ1·ψ0
+  → 같은 논리: ψ0(t) ≥ ψ0(0)·e^{-λ1·t}
+  → h(x(0)) ≥ 0 이면 h(x(t)) ≥ 0  ∀t   ∎
+```
+
+**초기 조건 요구사항이 핵심 미묘점**: h(x₀) ≥ 0만으로는 부족하고
+```
+ψ1(x₀) = ḣ(x₀) + λ1·h(x₀) ≥ 0
+```
+도 필요하다. 이미 빠르게 접근 중(ḣ ≪ 0)이면 ψ1(x₀) < 0일 수 있고,
+이 경우 캐스케이드는 h ≥ 0을 보장하지 못한다 (ψ1이 지수적으로
+0에 복귀할 때까지 h가 감소 가능). λ1을 키우면 같은 h에서 허용되는
+접근 속도 |ḣ|가 커져 초기 조건이 완화된다.
+
+### 이산시간 근사 (구현)
+
+MPPI 샘플 궤적 (K, N+1, nx) 위에서 미분을 유한 차분으로 대체:
+```
+ψ0_t = h(x_t)                                        (K, N+1)
+ψ1_t = (ψ0_{t+1} - ψ0_t)/dt + λ1·ψ0_t               (K, N)
+C_t  = (ψ1_{t+1} - ψ1_t)/dt + λ2·ψ1_t ≥ 0           (K, N-1)
+
+위반 비용:
+  cost = weight · Σ_t max(0, -C_t)²    (penalty="squared", 기본)
+  cost = weight · Σ_t max(0, -C_t)     (penalty="linear")
+```
+rd=2 캐스케이드는 최소 3개 시점이 필요하므로 N+1 < 3이면 rd=1로
+폴백한다 (`compute_cost()`의 `effective_rd`).
+
+**rd=1 축약 성질** (단위 테스트로 검증):
+```
+relative_degree=1, penalty="linear" 에서
+  C_t = (1/dt)·[h_{t+1} - (1 - λ1·dt)·h_t]
+
+λ1 = α/dt, weight' = weight·dt 로 두면
+  ≡ ControlBarrierCost(cbf_alpha=α, cbf_weight=weight)   (2장)
+```
+즉 HOCBFCost는 기존 이산 CBF 비용의 엄밀한 일반화다.
+
+### λ1/λ2 튜닝 직관
+
+폐루프 barrier 오차의 특성 다항식은
+```
+(s + λ1)(s + λ2) = s² + (λ1 + λ2)·s + λ1·λ2
+```
+근이 −λ1, −λ2로 **실수·음수**다. 이것이 지수형(exponential form)의
+요점: 근이 복소수이면 h가 0 주위에서 진동하며 순간적으로 h < 0
+침범이 가능하지만, 실수 음근이면 h → 0 접근이 단조 지수 수렴이다.
+
+```
+λ 큼:  h가 빠르게 감소하는 것을 허용 → 늦게 회피 (덜 보수적)
+λ 작음: 일찍부터 감속/회피 강제 → 보수적, 추적 성능 희생
+
+이산화 안정성: λᵢ·dt < 1 필수 (권장 λᵢ·dt ≤ 0.3)
+  벤치마크 기본값 λ1 = λ2 = 2.0, dt = 0.05 → λ·dt = 0.1 (안전)
+
+비대칭 설정:
+  λ1 > λ2: 접근 속도는 관대, 최종 제동은 엄격
+  λ1 < λ2: 접근 자체를 일찍 억제
+```
+
+### detect_relative_degree: 샘플링 기반 자동 검출
+
+cbfkit `rectifiers.py`의 방식을 포팅: 무작위 상태 n_samples개에서
+**총 제어 권한** Σ|∇h·g_j(x)|을 계산해 임계값(tol=1e-8) 미만이면
+rd=2로 판정한다.
+```
+g_j(x) = [f(x, δ·e_j) - f(x, 0)] / δ    (제어 유한 차분 —
+                                          제어-어파인이면 정확)
+```
+`HOCBFFilter(relative_degree=None)`이 이 함수를 호출해 모델에 맞는
+캐스케이드 차수를 자동 선택한다.
+
+### 두 가지 사용 모드: 비용 vs 해석적 필터
+
+**모드 1 — `HOCBFCost` (MPPI 궤적 비용)**: 위의 이산 캐스케이드를
+K개 샘플 전체에 페널티로 부과. 계획 단계에서 궤적 전체를 재형성.
+
+**모드 2 — `HOCBFFilter` (사후 해석적 필터)**: MPPI 출력 u_nom에
+대해 연속시간 단일 제약을 closed-form으로 보정:
+```
+ψ1 = ∇h·f + λ1·h            (drift만 — rd=2에서 ḣ은 u 무관)
+제약: ∇ψ1·(f + g·u) + λ2·ψ1 ≥ 0  →  aᵀu + b ≥ 0
+  a = ∇ψ1·g,   b = ∇ψ1·f + λ2·ψ1
+
+위반 시 최소 노름 보정 (3장 QP 필터의 해석적 해와 동일 구조):
+  u* = u_nom + max(0, -(b + aᵀu_nom)) · a / (aᵀa + ε)
+```
+다중 장애물은 가장 위반이 큰 제약을 `n_passes`(기본 3)회 반복 적용.
+∇ψ1은 상태 central difference, g(x)는 제어 forward difference.
+
+**벤치마크에서 cost ≫ filter였던 이유**: HOCBF-Filter는 스텝당
+37~67% 개입했지만 클리어런스는 Vanilla 수준(0.174/0.199 m)에
+그쳤고, 노이즈 하에서는 **최악**(충돌 3.0±4.2 스텝)이었다.
+단일 스텝 최소 노름 보정은 "지금 이 순간"의 제약만 만족시킬 뿐
+**계획된 궤적 전체를 재형성하지 못한다** — 명목 계획이 이미
+장애물을 향하고 있으면 필터는 매 스텝 뒤늦게 밀어내기만 반복한다.
+반면 HOCBFCost는 샘플링 단계에서 위험 궤적의 가중치 자체를 꺾는다.
+
+### 벤치마크 결과
+
+```
+시나리오 A (static_kin, 기구학 rd=1, 무노이즈):
+  HOCBF-MPPI: RMSE 0.436 m (전체 최고), MinClear 0.223 m, 충돌 0
+  CBF-MPPI:   RMSE 0.729 m, MinClear -0.030 m, 충돌 3 스텝 (!)
+  → rd=1에서조차 제곱 페널티 + 2차 캐스케이드가 더 이르고
+    부드러운 회피를 유도
+
+시나리오 B (dynamic_rd2, 동역학 5D — 홈그라운드):
+  HOCBF-MPPI: MinClear 0.282 m (MPPI 계열 최고)
+  1차 CBF 변형들: 0.039 ~ 0.199 m
+    (CBF-MPPI 0.039, RiskAware 0.075, Robust 0.080, Stochastic 0.139)
+  → 1차 조건은 가속도 제어가 한 스텝에 바꿀 수 없는 것을
+    페널티하므로 2~7배 클리어런스 차이
+
+시나리오 C (stochastic): HOCBF도 0.7±0.9 충돌 스텝 —
+  노이즈 마진이 없으므로 17~19장의 확률적 변형이 필요
+```
+
+### 구현 매핑 (수식 ↔ 코드)
+
+파일: `mppi_controller/controllers/mppi/hocbf_cost.py`
+
+| 수식 | 코드 |
+|------|------|
+| ψ0 = h = Δx² + Δy² − (r+margin)² | `HOCBFCost.compute_cost()`: `h = dx**2 + dy**2 - effective_r**2` |
+| ψ1 = Δψ0/dt + λ1·ψ0 | `psi1 = (h[:, 1:] - h[:, :-1]) / self.dt + self.lambda1 * h[:, :-1]` |
+| C = Δψ1/dt + λ2·ψ1 | `constraint = (psi1[:, 1:] - psi1[:, :-1]) / self.dt + self.lambda2 * psi1[:, :-1]` |
+| weight·Σ max(0,−C)² | `costs += self.weight * np.sum(violation, axis=1)` |
+| rd 검출 Σ\|∇h·g_j\| | `detect_relative_degree()` |
+| 필터 ψ1 = ∇h·f + λ1·h | `HOCBFFilter._psi1()` |
+| 필터 (a, b) 구성 | `HOCBFFilter._constraint_terms()` |
+| u* 최소 노름 보정 | `HOCBFFilter.filter_control()` |
+
+### 파라미터 가이드
+
+| 파라미터 | 기본값 | 튜닝 |
+|---------|--------|------|
+| `lambda1` | 1.0 (cost) / 2.0 (filter) | λ·dt ≤ 0.3 유지, 클수록 덜 보수적 |
+| `lambda2` | 1.0 (cost) / 2.0 (filter) | 위와 동일, 벤치마크는 2.0/2.0 |
+| `weight` | 1000.0 | 추적 비용 대비 10~1000배 (2장과 동일 논리) |
+| `safety_margin` | 0.1 | 이산화 오차 + 로봇 반경 흡수 |
+| `relative_degree` | 2 (cost) / None=자동 (filter) | 기구학=1, 동역학=2 |
+| `penalty` | "squared" | squared가 경계 근처 기울기를 키워 이른 회피 유도 |
+| `use_hard_rejection` | False | True면 h<0 궤적에 `rejection_cost`(1e6) 추가 |
+| `n_passes` (filter) | 3 | 다중 장애물 반복 보정 횟수 |
+
+### 한계
+
+- **Soft cost**: 초기 조건 ψ1(x₀) ≥ 0을 강제하지 않으므로 증명의
+  전제가 런타임에 깨질 수 있다 (비용은 위반을 벌하지만 금지하지 않음)
+- **원형 barrier 전용**: h = ‖p − p_o‖² − R² 하드코딩
+- **L_g L_f h 퇴화**: 정확히 측면 통과 순간에는 rd=2 조건도
+  각가속도를 제약하지 못함
+- **노이즈 무방비**: 확률 마진이 없어 프로세스 노이즈 하에서는
+  17~19장의 변형과 결합 필요
+
+### 언제 사용
+
+- 가속도/토크 제어 동역학 모델 (rd=2) — **유일하게 제어가 실제로
+  영향을 줄 수 있는 비용 정식화**
+- rd=1이라도 더 부드러운 회피와 나은 추적을 원할 때 (시나리오 A 근거)
+- `HOCBFFilter`는 단독 사용보다 최후 방어선(layered defense)으로
+
+**참조**: Ames et al. (2019) ECC survey; Xiao & Belta (2019) CDC;
+cbfkit `certificates/rectifiers.py`
+
+---
+
+## 17. Stochastic CBF (Itô 보정)
+
+### 문제
+
+실제 로봇의 동역학은 확률 미분 방정식(SDE)이다:
+```
+dx = (f(x) + g(x)·u) dt + σ(x) dw      (dw: 표준 Wiener 과정)
+```
+결정론적 CBF 조건 ḣ ≥ −α·h는 노이즈 항을 무시한다. 확률계에서
+barrier의 "미분"은 어떻게 정의되고, 조건은 어떻게 바뀌는가?
+
+### 핵심 아이디어
+
+확률 과정에서는 연쇄 법칙에 **2차 항**이 추가된다 (Itô's lemma).
+barrier drift 조건에 이 2차 보정을 반영한 것이 stochastic CBF
+(Clark 2021)다.
+
+### Itô's Lemma에 의한 dh 전개 (전 과정)
+
+h(x_t)를 x_t에 대해 2차까지 Taylor 전개하고 dx를 대입한다:
+```
+dh = ∇h·dx + ½·dxᵀ·∇²h·dx + o(dt)
+
+dx = (f + g·u)dt + σ·dw 를 대입:
+
+  ∇h·dx = ∇h·(f + g·u)dt + ∇h·σ·dw
+
+  dxᵀ·∇²h·dx 에서 Itô 계산 규칙 적용:
+    (dt)² = 0,  dt·dw = 0,  dw·dwᵀ = I·dt   ← 핵심
+  → dxᵀ·∇²h·dx = (σ·dw)ᵀ·∇²h·(σ·dw) = Tr[σᵀ·∇²h·σ]·dt
+
+∴ dh = [∇h·(f + g·u) + ½·Tr[σᵀ·∇²h·σ]]·dt + ∇h·σ·dw
+        └────────── 생성자(generator) A h ──────────┘  └─ martingale ─┘
+```
+결정론에서는 없던 **½·Tr[σᵀ∇²hσ]** 항이 drift에 추가된다.
+(dw·dwᵀ = I·dt는 Brownian 증분의 2차 변동이 dt 차수로 살아남는다는
+Itô 계산의 본질 — 일반 미적분과의 유일한 차이)
+
+**Stochastic zeroing-CBF 조건** (Clark 2021):
+```
+A h(x) = ∇h·(f + g·u) + ½·Tr[σᵀ·∇²h·σ] ≥ -α·h + β
+```
+β ≥ 0는 안전 버퍼 (아래 참조).
+
+### 원형 Barrier의 해석적 Hessian
+
+h = Δx² + Δy² − R²은 위치에 대한 2차식이므로 Hessian이 상수다:
+```
+∇²h = ⎡2  0  0 ⋯⎤
+      ⎢0  2  0 ⋯⎥ = diag(2, 2, 0, …, 0)    (위치 블록만 2I)
+      ⎣0  0  0 ⋯⎦
+
+σ = diag(σ_x, σ_y, σ_θ, …) (상태별 노이즈)일 때:
+
+½·Tr[σᵀ·∇²h·σ] = ½·(2σ_x² + 2σ_y² + 0 + …) = σ_x² + σ_y²
+               = Σᵢ σ_pos,i²
+```
+**autodiff가 전혀 필요 없다** — cbfkit은 JAX로 ∇²h를 자동 미분하지만,
+원형 barrier에서는 보정항이 상수 Σσ_pos²로 닫힌다.
+
+### 이산시간 제약
+
+결정론적 rollout의 Δh가 ∇h·(f+gu)를 근사하므로:
+```
+C_t = Δh_t/dt + α·h_t + ito − β ≥ 0,    ito = Σᵢ σ_pos,i²
+
+위반 비용: cost = weight · Σ_t max(0, -C_t)
+```
+
+**축약 성질** (단위 테스트 검증): σ = 0, β = 0이면
+```
+StochasticCBFCost(alpha=a, weight=w·dt)
+  ≡ ControlBarrierCost(cbf_alpha=a·dt, cbf_weight=w)
+```
+벤치마크의 `alpha=6.0, weight=50` (dt=0.05)이 정확히
+`ControlBarrierCost(0.3, 1000)`에 대응하는 이유다
+(α·dt = 0.3, weight/dt = 1000).
+
+### 핵심 통찰 (정직하게): Itô 항은 볼록 barrier를 **완화**한다
+
+원형 barrier는 볼록(∇²h ⪰ 0)이므로 Itô 항 Σσ_pos² > 0이고,
+이 양수 항은 좌변에 **더해져** 조건을 **느슨하게** 만든다:
+```
+C_t = Δh/dt + α·h + ito − β    ← ito > 0 이면 위반이 "덜" 발생
+```
+
+직관: 등방성 노이즈는 기대 제곱 거리를 **증가**시킨다.
+```
+E[‖p + σε − p_o‖²] = ‖p − p_o‖² + Σᵢσᵢ²    (ε ~ N(0, I))
+```
+즉 h의 **평균**은 노이즈 덕에 오히려 커진다 — 수학은 정확하다
+(cbfkit의 수식 그대로). 위험은 평균이 아니라 **꼬리**에 있는데,
+생성자 기반 평균 drift 조건은 꼬리를 보지 못한다.
+
+**실증**: 벤치마크 시나리오 C(강한 노이즈, 3 시드)에서
+StochasticCBF-MPPI는 β = 0.5 버퍼에도 불구하고 평균 **1.7±1.7
+충돌 스텝**을 기록했다 (MinClear −0.019±0.059 m). 동시에 barrier
+계열 중 최고 추적(RMSE 0.439)이었다 — **가장 덜 보수적**이기
+때문이다. 노이즈에 대한 보수성은 이 비용이 아니라:
+- 버퍼 **β > 0** (수동 튜닝, 시간 불변)
+- **RiskAwareCBFCost** (18장 — σ가 클수록 마진 증가, 확률 보장)
+- **RobustCBFCost** (19장 — worst-case 마진)
+에서 확보해야 한다.
+
+### 구현 매핑 (수식 ↔ 코드)
+
+파일: `mppi_controller/controllers/mppi/stochastic_cbf.py`
+
+| 수식 | 코드 |
+|------|------|
+| ito = Σσ_pos,i² | `__init__`: `self.ito_correction = float(np.sum(sigma_pos**2))` |
+| ito 조회 | `get_ito_correction()` |
+| C = Δh/dt + αh + ito − β | `compute_cost()`: `condition = (h[:,1:] - h[:,:-1])/self.dt + self.alpha*h[:,:-1] + self.ito_correction - self.beta` |
+| weight·Σ max(0,−C) | `costs += self.weight * np.sum(violation, axis=1)` |
+
+### 파라미터 가이드
+
+| 파라미터 | 기본값 | 튜닝 |
+|---------|--------|------|
+| `alpha` | 1.0 | 연속시간 rate — α·dt ≤ 0.3 유지 (벤치마크: 6.0 @ dt=0.05) |
+| `beta` | 0.0 | 노이즈 보수성 버퍼. Itô 완화를 상쇄하려면 최소 ito 이상 |
+| `sigma_process` | None (=0) | **연속시간 확산 σ**. 이산 per-step std로부터 σ = std/√dt 변환 필요 |
+| `weight` | 1000.0 | 조건이 1/dt 스케일이므로 CBF 비용 대비 weight·dt 등가 |
+| `safety_margin` | 0.1 | 이산화 오차 흡수 |
+
+`sigma_process` 변환 주의: 시뮬레이터가 스텝마다 std s를 더하면
+연속시간 확산은 σ = s/√dt (벤치마크: 0.05/√0.05 ≈ 0.224).
+
+### 한계
+
+- **평균 drift 조건**: 꼬리 확률 무보장 (위 통찰) — 실질 보수성은
+  β 수동 튜닝에 의존
+- **볼록 barrier에서는 완화 효과**: 비볼록 h(∇²h ≺ 0 영역)에서만
+  Itô 항이 조건을 강화함
+- **σ 상수 가정**: 상태 의존 σ(x)는 위치 블록 상수로 근사
+
+### 언제 사용
+
+- 노이즈 모델을 조건에 **명시**하고 싶으나 추적 성능이 우선일 때
+  (barrier 계열 중 최저 RMSE)
+- 이론적 일관성(SDE 생성자 조건)이 필요한 비교 실험의 기준선
+- 실전 안전이 목적이면 18장/19장을 대신 사용
+
+**참조**: Clark (2021) Automatica; Black et al. (2023) LCSS;
+cbfkit `generate_constraints/stochastic_cbfs.py`
+
+---
+
+## 18. Risk-Aware Path-Integral CBF
+
+### 문제
+
+17장의 생성자 조건은 평균 drift만 제약한다. 우리가 실제로 원하는
+보장은 **"궤적 전체에 걸쳐 단 한 번이라도 안전 집합을 벗어날 확률"**
+의 상계다:
+```
+P( min_{t ≤ T} h(x_t) < 0 ) ≤ ρ
+```
+
+### Point-wise vs Worst-case-over-time: 왜 다른가
+
+```
+point-wise 보장:  P(h(x_t) < 0) ≤ ρ    각 시점 t마다 개별적으로
+  → 궤적 전체 위반 확률은 union bound로 N·ρ 까지 커질 수 있음
+    (N = 400 스텝, ρ = 0.05 → 보장이 사실상 무의미)
+
+worst-case-over-time 보장:  P(min_t h < 0) ≤ ρ
+  → "이 궤적이 언젠가 충돌할 확률" 자체가 ρ 이하
+  → 안전 주장으로서 의미 있는 유일한 형태
+```
+후자를 얻으려면 h의 **경로 전체 최소값**(running minimum)의 분포를
+제어해야 하고, 이는 martingale 이론의 영역이다 (Black et al., CDC 2023).
+
+### Martingale 유도 스케치
+
+17장의 Itô 전개에서 h의 확률 요동 부분만 분리한다:
+```
+dh = (drift)·dt + ∇h·σ·dw
+              └── M_t := ∫₀ᵗ ∇h·σ dw  (Itô 적분 → martingale) ──┘
+```
+
+**1단계 — 2차 변동 상계**: M_t의 quadratic variation은
+```
+⟨M⟩_t = ∫₀ᵗ ‖∇h·σ‖² ds ≤ η²·t
+```
+여기서 η는 제약 집합 위에서 ‖∇h·σ‖의 상계 (아래 참조).
+
+**2단계 — 시간 변환 + 반사 원리**: Dambis–Dubins–Schwarz 정리로
+M_t = B_{⟨M⟩_t} (B: 표준 Brownian 운동). Brownian 운동의 반사
+원리(Doob의 maximal inequality의 정확한 형태)로:
+```
+P( sup_{s≤t} |M_s| ≥ c ) ≤ 2·(1 − Φ(c / √⟨M⟩_t))
+                         ≤ 2·(1 − Φ(c / (η·√t)))
+```
+
+**3단계 — 마진으로 역산**: h가 위험해지는 것은 M이 **음의 방향**으로
+크게 요동칠 때뿐이므로(단측 사건), 대칭성에 의해 절반만 계산하면
+된다. 우변을 2ρ로 놓으면 단측 확률 ≤ ρ:
+```
+2·(1 − Φ(z)) = 2ρ,   Φ(z) = ½(1 + erf(z/√2))
+→ erf(z/√2) = 1 − 2ρ
+→ z = √2 · erfinv(1 − 2ρ)
+
+c = z·η·√t = √(2t) · η · erfinv(1 − 2ρ)  =: margin(t)
+```
+
+**결론**: 계획된(결정론적) 궤적이 모든 t에서
+```
+h(x_t) ≥ margin(t) = √(2t) · η · erfinv(1 − 2ρ)
+```
+를 만족하면, 노이즈 요동을 감안해도 P(min_t h < 0) ≤ ρ.
+
+마진의 성질:
+```
+ρ = 0.5 → erfinv(0) = 0 → margin ≡ 0 (마진 없는 CBF로 복귀)
+ρ → 0  → erfinv(1) = ∞ → margin → ∞ (무한 보수)
+t 의존성: √t — 불확실성이 Brownian 스케일로 축적되므로
+  호라이즌 먼 미래일수록 더 큰 여유를 요구 (자연스러운 시간 구조)
+```
+
+### η의 의미와 배치-최대 근사
+
+η는 이론적으로 **제약 집합 전체**에서의 상계 sup‖∇h·σ‖다.
+원형 barrier에서 ∇h의 위치 성분은 [2Δx, 2Δy]이므로:
+```
+‖∇h·σ_pos‖ = √((2Δx·σ_x)² + (2Δy·σ_y)²)
+```
+구현은 진짜 sup 대신 **현재 샘플 궤적 배치의 최대값**으로 근사한다:
+```
+η ≈ max_{k,t} ‖∇h(x_t^k)·σ_pos‖    (compute_cost 내부)
+```
+- 배치가 방문하는 영역에 대해서는 유효한 상계
+- 실행 궤적이 샘플 envelope을 벗어나면 ρ 보장은 근사가 됨
+- 엄밀한 보장이 필요하면 `grad_bound` 인자로 전역 상계 지정
+  (η = grad_bound·‖σ_pos‖₂ 고정) — 대신 더 보수적
+
+**보수성 트레이드오프**: η가 클수록(장애물에서 먼 샘플이 배치에
+있을수록) 마진이 커진다. 이는 안전 측으로의 오차이므로 보장은
+유지되지만 추적 성능을 깎는다.
+
+### 벤치마크: ρ는 단조 안전 다이얼
+
+시나리오 D (risk_sweep, 노이즈 std [0.05, 0.05, 0.02], 3 시드):
+
+| ρ | RMSE (m) | MinClear (m) | 충돌 스텝 |
+|---|----------|--------------|-----------|
+| 0.5 (margin=0) | 0.599±0.135 | **−0.068±0.089** | 3.7±4.5 |
+| 0.2 | 1.569±0.271 | 0.115±0.023 | 0.0 |
+| 0.1 | 1.997±0.092 | 0.243±0.016 | 0.0 |
+| 0.05 | 1.621±0.137 | 0.395±0.024 | 0.0 |
+| 0.01 | 1.746±0.310 | 0.588±0.028 | 0.0 |
+| (참고) Vanilla | 0.727±0.192 | 0.068±0.020 | 0.0 |
+| (참고) StochasticCBF | 0.439±0.030 | −0.019±0.059 | 1.7±1.7 |
+
+- MinClear가 ρ 전 범위에서 **단조**: −0.068 → 0.115 → 0.243 →
+  0.395 → 0.588 m — 이론(erfinv 단조성)과 정확히 일치
+- ρ = 0.5는 마진 없는 CBF와 동일 → 노이즈 하 충돌 (17장의 결론 재확인)
+- ρ ≤ 0.2에서 모든 시드 충돌 0
+- 추적 비용(RMSE 증가)은 대부분 ρ = 0.5 → 0.1 사이에서 지불됨
+
+### ρ 선택 가이드
+
+```
+ρ = 0.5        : 마진 0 — 디버깅/축약 확인용으로만
+ρ = 0.2        : 최소 보수성으로 충돌 제거 (벤치마크 기준)
+ρ = 0.05 ~ 0.1 : 실용 권장 범위 — "위반 확률 5~10%" 명시 보장
+ρ = 0.01       : 극보수 (클리어런스 ~0.6 m) — 인명 관련 응용
+```
+ρ는 **해석 가능한 단일 노브**라는 것이 이 기법의 실용적 장점:
+"이 궤적이 언젠가 충돌할 확률 ≤ ρ"를 직접 지정한다.
+
+### 구현 매핑 (수식 ↔ 코드)
+
+파일: `mppi_controller/controllers/mppi/stochastic_cbf.py`
+
+| 수식 | 코드 |
+|------|------|
+| erfinv(1−2ρ) | `__init__`: `self.erf_factor = float(erfinv(1.0 - 2.0*rho))` |
+| ‖∇h·σ_pos‖ 배치 계산 | `compute_cost()`: `grad_sigma_norm = np.sqrt((2*dx*σx)**2 + (2*dy*σy)**2)` |
+| η = 배치 최대 | `eta = float(np.max(grad_sigma_norm))` |
+| margin(t) = √(2t)·η·erfinv(1−2ρ) | `margin = sqrt_2t * eta * self.erf_factor` |
+| weight·Σ max(0, margin−h) | `violation = np.maximum(0.0, margin[np.newaxis,:] - h)` |
+| margin 조회 (플롯용) | `get_margin(t, eta=None)` |
+
+### 파라미터 가이드
+
+| 파라미터 | 기본값 | 튜닝 |
+|---------|--------|------|
+| `rho` | 0.05 | 위 선택 가이드 참조 — 유일한 핵심 노브 |
+| `sigma_process` | None (=0) | 연속시간 확산 σ = per-step std / √dt |
+| `grad_bound` | None (배치 근사) | 엄밀 보장 필요 시 전역 ‖∇h‖ 상계 지정 |
+| `weight` | 1000.0 | 마진 위반은 안전 위반의 전조 — 높게 유지 |
+
+### 한계
+
+- **η 근사**: 배치-최대는 방문 영역에서만 유효 — 실행 궤적이
+  샘플 envelope을 벗어나는 순간 ρ는 근사 보장이 됨
+- **drift 가정**: 유도는 계획 궤적이 마진 위를 유지한다는 전제 —
+  MPPI soft cost는 이를 강제하지 않음 (weight를 높게 유지해야 함)
+- **√t 마진의 비용**: 호라이즌 끝(t = N·dt)에서 마진이 가장 커서
+  장애물 근처 통과 자체를 크게 우회 — RMSE 2~3배 대가 (벤치마크)
+
+### 언제 사용
+
+- 프로세스 노이즈가 무시 불가능하고 **명시된 확률 보장**이 요구될 때
+- 안전-성능 트레이드오프를 단일 노브(ρ)로 리포트해야 하는 실험
+- 추적 성능이 더 중요하면 19장 Robust CBF가 더 싼 보수성 제공
+
+**참조**: Black, Fainekos, Hoxha, Prokhorov, Panagou (2023) CDC;
+cbfkit `path_integral_barrier.py`
+
+---
+
+## 19. Robust CBF (유계 외란)
+
+### 문제
+
+노이즈가 가우시안이 아니거나 분포를 모르고, 오직
+**"외란의 크기가 유계"**라는 것만 알 때:
+```
+ẋ = f(x) + g(x)·u + M·w,    ‖w‖ ≤ w_max
+```
+(M: 외란 입력 행렬 — 외란이 어느 상태에 작용하는지 지정)
+
+### 핵심 아이디어
+
+최악의 외란이 h를 감소시키는 속도의 상계만큼 CBF 조건을
+**강화(tighten)**한다 (Jankovic 2018). 확률이 아니라 **결정론적
+worst-case** 보장.
+
+### Worst-case 항 유도 (Cauchy-Schwarz)
+
+외란이 있는 상태에서 barrier 미분:
+```
+ḣ = ∇h·(f + g·u) + ∇h·M·w
+```
+마지막 항은 적대적 외란이 고를 수 있는 최악값으로 하한:
+```
+‖w‖₂ ≤ w_max 인 경우 (Cauchy-Schwarz):
+  ∇h·M·w ≥ −‖∇h·M‖₂·‖w‖₂ ≥ −‖∇h·M‖₂·w_max
+  (등호: w = −w_max·(∇h·M)ᵀ/‖∇h·M‖₂ — 최악 외란은 h 감소
+   방향으로 정렬된 최대 크기 벡터)
+
+‖w‖∞ ≤ w_max 인 경우 (1-노름 쌍대: Hölder):
+  ∇h·M·w ≥ −‖∇h·M‖₁·w_max = −Σ_j |(∇h·M)_j|·w_max
+```
+따라서 **모든** 허용 외란에 대해 ḣ ≥ −α(h)를 보장하려면:
+```
+∇h·(f + g·u) + α(h) − ‖∇h·M‖·w_max ≥ 0
+```
+
+### 이산시간 조건
+
+기존 이산 CBF 조건(2장)을 재사용하되, 외란이 한 스텝 dt 동안 h를
+최대 ‖∇h·M‖·w_max·dt만큼 깎을 수 있으므로 그만큼 마진을 예약:
+```
+C_t = h_{t+1} − (1 − α)·h_t − dt·‖∇h_t·M‖·w_max ≥ 0
+
+위반 비용: cost = weight · Σ_t max(0, -C_t)
+```
+성질 (단위 테스트 검증):
+- w_max = 0 → **vanilla `ControlBarrierCost`와 정확히 동일**
+- 마진 항은 w_max에 **선형** — 튜닝이 직선적
+
+### 3-Way 비교: Stochastic vs Risk-Aware vs Robust
+
+| | Stochastic CBF (17장) | Risk-Aware CBF (18장) | Robust CBF (19장) |
+|---|---|---|---|
+| 외란 모델 | SDE (가우시안 백색 σ·dw) | SDE (가우시안 백색 σ·dw) | 유계 결정론적 ‖w‖ ≤ w_max |
+| 보장 형태 | 평균 drift 조건 (generator) | 경로 전체 꼬리 확률 P(min_t h<0) ≤ ρ | worst-case 결정론적 (모든 허용 외란) |
+| 마진 구조 | +Σσ_pos² (볼록 barrier에선 **완화!**) | +√(2t)·η·erfinv(1−2ρ) (시간 증가) | +dt·‖∇h·M‖·w_max (시간 불변) |
+| 보수성 | 최저 (사실상 vanilla − ε) | 높음, ρ로 연속 조절 | 중간, w_max에 선형 |
+| 튜닝 노브 | β (버퍼, 물리적 의미 약함) | ρ (위반 확률 — 해석 명확) | w_max (외란 크기 — 물리적) |
+| 벤치마크 (노이즈, 3시드) | RMSE 0.439 / 충돌 1.7±1.7 | RMSE 1.997 / 충돌 0 (ρ=0.1) | RMSE 0.705 / 충돌 0 |
+| 실패 모드 | 꼬리 위험 무시 | envelope 이탈 시 근사 | w_max 과소 추정 시 무보장 |
+
+**요약**: 가우시안 꼬리까지 보장 → Risk-Aware,
+분포 무관 + 추적 중시 → Robust, 둘 다 아니면 Stochastic은
+비교 기준선으로만.
+
+### 벤치마크 결과
+
+시나리오 C (stochastic, 3 시드):
+```
+RobustCBF-MPPI: RMSE 0.705±0.066, MinClear 0.078±0.039, 충돌 0
+  → 충돌 0인 방법 중 최저 RMSE (RiskAware ρ=0.1은 1.997)
+  → "안전-per-추적" 최고 효율
+
+계산 오버헤드: 스텝별 ∇h 노름 계산으로 +0.4 ms (2.2 ms 총)
+  — 다른 비용들(+0.1 ms 미만)보다 약간 비쌈
+```
+
+### w_max 선택 가이드
+
+물리적 의미가 명확한 것이 장점: **속도 차원의 외란 상계**.
+```
+이산 노이즈 std s가 관측될 때 (per-step, 위치):
+  등가 속도 외란 ≈ s / dt      (벤치마크: 0.05 m / 0.05 s = 1.0 m/s)
+
+권장: 1σ 등가로 시작 (w_max = s/dt), 충돌 잔존 시 2σ로 상향
+과대 추정: 보수성만 증가 (마진이 w_max에 선형이라 예측 가능)
+과소 추정: worst-case 보장 자체가 무효
+```
+
+### 구현 매핑 (수식 ↔ 코드)
+
+파일: `mppi_controller/controllers/mppi/robust_cbf_margin.py`
+
+| 수식 | 코드 |
+|------|------|
+| ∇h_pos = [2Δx, 2Δy] | `compute_cost()`: `grad_pos = np.stack([2.0*dx[:,:-1], 2.0*dy[:,:-1]], axis=-1)` |
+| ‖∇h·M‖₂·w_max / ‖∇h·M‖₁·w_max | `_robust_term()`: `np.linalg.norm(gM, axis=-1)` / `np.sum(np.abs(gM), axis=-1)` |
+| dt·‖∇h·M‖·w_max | `robust_margin = self.dt * self._robust_term(grad_pos)` |
+| C = h_{t+1} − (1−α)h_t − margin | `condition = h[:,1:] - (1.0-self.alpha)*h[:,:-1] - robust_margin` |
+| 마진 조회 (테스트/플롯) | `get_robust_margin(trajectories)` → (num_obs, K, N) |
+
+### 파라미터 가이드
+
+| 파라미터 | 기본값 | 튜닝 |
+|---------|--------|------|
+| `w_max` | 0.0 | 위 선택 가이드 — 0이면 vanilla CBF |
+| `M` | None (=I₂ 위치 블록) | 외란이 작용하는 상태 지정 (2,m) 또는 (nx,m) |
+| `alpha` | 0.1 | 이산 class-K (2장과 동일, 벤치마크 0.3) |
+| `norm` | "two" | ‖w‖₂ 유계면 "two", ‖w‖∞ 유계면 "sup" (더 보수적) |
+| `weight` | 1000.0 | 2장 CBF 비용과 동일 논리 |
+
+### 한계
+
+- **worst-case의 본질적 보수성**: 실제 외란이 최악 방향으로
+  정렬되는 일은 드묾 — 평균적으로는 과한 마진
+- **w_max 추정 의존**: 유계 가정이 깨지면 (가우시안은 엄밀히는
+  무계) 보장은 "w_max 이내 실현에 한해" 유효
+- **원형 barrier 전용** (다른 비용들과 동일)
+
+### 언제 사용
+
+- 외란 분포를 모르고 **크기 상계만** 알 때 (모델 불일치, 바람, 경사)
+- 노이즈 하에서 추적 성능을 크게 희생하지 않고 충돌 0을 원할 때
+  (벤치마크에서 안전-per-추적 최고)
+- 가우시안 확신 + 명시 확률 보장 필요 → 18장이 더 적합
+
+**참조**: Jankovic (2018) Automatica (초기 버전 2014);
+cbfkit `generate_constraints/robust_cbfs.py`, `utils/robustness_terms.py`
+
+---
+
+## 20. CLF-CBF-QP (Native)
+
+### 문제
+
+2~19장의 기법은 모두 MPPI(샘플링)를 전제한다. 샘플링 없이
+**순수 최적화**만으로 "수렴 + 안전"을 동시에 다루는 고전적
+정식화(Ames et al. 2017)는 어떤 성능을 내는가? MPPI 계열과의
+공정한 비교를 위해 repo 표준 인터페이스
+`compute_control(state, ref) → (u, info)`를 따르는 네이티브
+구현이 필요하다.
+
+### CLF (Control Lyapunov Function) 기초
+
+CLF V(x)는 양의 정부호 함수로, 다음을 만족하는 u가 존재해야 한다:
+```
+V̇(x, u) = ∇V·(f + g·u) ≤ -c·V(x)      (c > 0)
+```
+이 조건이 유지되면 비교 보조정리로
+```
+V(x(t)) ≤ V(x(0))·e^{-c·t}  → 0
+```
+즉 **지수 안정성**: 오차가 율 c로 지수 수렴한다. CBF가 "나쁜 곳에
+가지 않기"(불변성)라면 CLF는 "좋은 곳으로 가기"(수렴)의 인증서다.
+
+### QP 정식화: 안전은 hard, 수렴은 soft
+
+두 조건은 충돌할 수 있다 (장애물이 목표 방향을 막을 때).
+해결책: CLF에만 slack δ를 허용:
+```
+min_{u, δ}   ‖u − u_nom‖²_P + λ_clf·δ²
+s.t.         A_cbf·u ≥ b_cbf          (zeroing CBF — hard, 장애물별)
+             a_clf·u ≤ b_clf + δ      (CLF — soft)
+             u_min ≤ u ≤ u_max,  δ ≥ 0
+```
+- CBF 행: L_f h + L_g h·u + α·h ≥ 0 → A_cbf = L_g h, b_cbf = −L_f h − α·h
+- CLF 행: L_f V + L_g V·u ≤ −c·V + δ
+- **안전이 항상 우선**: 안전과 수렴이 충돌하면 δ가 커지며 수렴을
+  포기하지만, CBF 제약은 절대 이완되지 않는다
+  (cbfkit의 `relaxable_clf=True, relaxable_cbf=False` 구성과 동일)
+
+### Unicycle의 Underactuation과 Near-Identity Look-Ahead
+
+unicycle은 위치를 직접 제어하지 못한다:
+```
+ṗ = ⎡cosθ  0⎤·⎡v⎤     ← ω 열이 0: 회전은 위치를 즉시 못 바꿈
+    ⎣sinθ  0⎦ ⎣ω⎦        (rank 1 — 횡방향 이동 불가)
+```
+위치 CLF/CBF를 u에 대한 어파인 제약으로 만들려면 이 맵이
+가역이어야 한다. **트릭**: 로봇 전방 d만큼 떨어진 look-ahead 점을
+제어 대상으로 삼는다:
+```
+p̃ = p + d·[cosθ, sinθ]ᵀ
+
+ṗ̃ = ṗ + d·θ̇·[-sinθ, cosθ]ᵀ = M(θ)·u
+
+M(θ) = ⎡cosθ  -d·sinθ⎤ ,   det M = d·(cos²θ + sin²θ) = d > 0
+       ⎣sinθ   d·cosθ⎦
+```
+d > 0이면 M이 **항상 가역** — p̃에 대해서는 완전 구동
+(near-identity diffeomorphism). 대가: 수렴 지점이 레퍼런스에서
+d 이내 오프셋을 갖고, CBF 반경에 d를 더해야 함
+(h = |p̃ − p_o|² − (r + d + margin)²).
+
+**기구학 (3D) 항 구성**:
+```
+CLF: V = ½·|p̃ − p_ref|² + k_θ·e_θ²
+     V̇ ≈ eᵀ·M·u − 2·k_θ·e_θ·ω   (근사: ė_θ ≈ −ω)
+CBF: h_i = |p̃ − p_o,i|² − R_i²,  ḣ_i = 2·(p̃−p_o)ᵀ·M·u ≥ −α·h_i
+```
+
+### 동역학 (5D): Backstepping-Lite 캐스케이드
+
+가속도 제어 u = [a, α]에서는 위치 CBF가 rd=2 (16장) — QP에서도
+캐스케이드가 필요하다:
+```
+CBF (HOCBF 1단): h_e = ḣ + λ·h 를 새 barrier로,  ḣ_e ≥ -α·h_e
+  ḣ = 2·e_oᵀ·M·w             (w = [v, ω] — 제어 미포함)
+  ḧ = 2|Mw|² + 2ω·e_oᵀ·(∂M/∂θ)·w − 2·e_oᵀ·M·C·w + 2·e_oᵀ·M·u
+       └────────────── drift (u 무관) ──────────────┘   └ u 등장 ┘
+  (C = diag(c_v, c_ω): 마찰 행렬)
+
+CLF (backstepping-lite): 기구학 층이 만든 desired twist w_d에 대해
+  e_w = w − w_d,   V = ½·|e_w|²
+  V̇ = e_wᵀ·(u − C·w) ≤ −c·V + δ    (ẇ_d ≈ 0 근사)
+```
+완전한 backstepping은 ẇ_d 항을 정확히 전파해야 하지만, 여기서는
+생략("lite") — 이 근사가 5D 추적 열화(아래 벤치마크)의 주 원인이다.
+
+### 해석적 Fast Path 유도 (jaxopt/OSQP 대체)
+
+`CBFCLFQPSolver`는 외부 QP 라이브러리 없이 3단 fast path + SLSQP
+폴백을 쓴다:
+
+**(a) 제약 비활성**: u* = clip(u_nom) — 검사만 하고 종료.
+
+**(b) CLF만 활성 (soft, 닫힌형)**: δ*(u) = max(0, a·u − b)를
+목적 함수에 대입하면 (활성 영역에서) 무제약 문제:
+```
+min_u  (u − u_nom)ᵀP(u − u_nom) + λ·(a·u − b)²
+
+∇ = 0:  2P(u − u_nom) + 2λ·a·(a·u − b) = 0
+u = u_nom − P⁻¹a·λ·(a·u − b)  를 s = a·u_nom − b 로 정리하면
+
+u* = u_nom − (λ·s / (1 + λ·aᵀP⁻¹a)) · P⁻¹a
+δ* = s / (1 + λ·q),   q = aᵀP⁻¹a
+```
+(Sherman–Morrison 형태의 rank-1 보정 — λ → ∞이면 등식 투영으로 수렴)
+
+**(c) 단일 CBF 활성 (등식 투영)**: 위반 제약이 하나뿐이면
+활성 제약을 등식으로 놓고 Lagrangian:
+```
+min (u − u_nom)ᵀP(u − u_nom)  s.t.  g·u = c
+
+정류 조건: 2P(u − u_nom) = μ·gᵀ → u = u_nom + (μ/2)·P⁻¹gᵀ
+제약 대입: g·u_nom + (μ/2)·g·P⁻¹gᵀ = c
+
+u* = u_nom + P⁻¹gᵀ·(c − g·u_nom) / (g·P⁻¹gᵀ)
+```
+
+**(d) SLSQP 폴백**: 다중 제약 동시 활성 / 경계 활성 / CLF-CBF 동시
+활성일 때만. 결과: 평균 solve **0.09~0.15 ms**, 외부 QP 의존성 없음.
+
+추가 구현 장치: 명목 제어에 장애물 인지 **접선 투영 + 히스테리시스**
+(`_project_pdot_around_obstacles`) — head-on 정체(deadlock) 방지용
+휴리스틱이며, 안전 보장은 여전히 hard CBF 제약이 담당.
+
+### MPPI 대비 포지셔닝
+
+| | CLF-CBF-QP / CBF-QP | MPPI + barrier 비용 |
+|---|---|---|
+| 계산 | **0.09~0.15 ms** (~20배 빠름) | 1.8~3.0 ms (K=512, N=20) |
+| 구조 | 국소 반응형 (현재 상태 1점) | 예측 계획 (N-스텝 룩어헤드) |
+| 안전 | hard 제약 — 벤치마크 전 시나리오 충돌 0, feasibility 99.8~100% | soft 비용 — weight 의존 |
+| 추적 (기구학) | CBF-QP RMSE 0.444 (HOCBF-MPPI 0.436과 대등) | 0.44~0.87 |
+| 추적 (동역학 5D) | **RMSE 1.93 (CLF-QP) / 2.41 (CBF-QP)** — 열화 | 0.69~0.85 |
+| 비볼록 지형 | local minima 취약 (1-스텝 시야) | 샘플링으로 탈출 가능 |
+
+5D 열화의 원인: backstepping-lite의 ẇ_d ≈ 0 근사 + 예측 부재.
+클리어런스는 오히려 최고 수준(0.34~0.41 m) — "느리지만 안전".
+
+**실용 조합**: MPPI(HOCBF/RiskAware 비용)로 계획 + 0.1 ms QP를
+최후 액추에이션 shield로 — 상보적 구조.
+
+### 구현 매핑 (수식 ↔ 코드)
+
+파일: `mppi_controller/controllers/mppi/clf_cbf_qp.py`
+
+| 수식 | 코드 |
+|------|------|
+| QP 3단 fast path + SLSQP | `CBFCLFQPSolver.solve()` |
+| (b) soft-CLF 닫힌형 | `u_cand = u_nom - (λ·s/(1+λ·q))·Pinv_a` |
+| (c) 등식 투영 | `u_proj = u_nom + Pinv_g·(c - g@u_nom)/denom` |
+| p̃, M(θ) | `CLFCBFQPController._lookahead_map()` |
+| 기구학 CLF (V, a_clf, b_clf) | `_clf_kinematic()` |
+| 기구학 CBF 행 | `_cbf_rows_kinematic()` |
+| 5D HOCBF 1단 + CLF | `_terms_dynamic()` |
+| 접선 투영 (deadlock 방지) | `_project_pdot_around_obstacles()` |
+| CLF 제거 베이스라인 | `CBFOnlyQPController` (`use_clf = False`, pure-pursuit 명목) |
+
+### 파라미터 가이드 (`CLFCBFQPParams`)
+
+| 파라미터 | 기본값 | 튜닝 |
+|---------|--------|------|
+| `alpha_cbf` | 1.5 | CBF class-K — 클수록 늦은 회피 |
+| `c_clf` | 1.0 | CLF 수렴률 — 클수록 공격적 추적 |
+| `lambda_clf` | 50.0 | slack 페널티 — 클수록 수렴 우선 (안전은 불변) |
+| `lookahead_d` | 0.15 | 수렴 오프셋 반경 = d. 너무 작으면 M 조건수 악화 |
+| `safety_margin` | 0.15 | 연속시간 조건의 이산화 오차 흡수 (MPPI보다 크게) |
+| `k_p` | 1.2 | 명목 위치 게인 |
+| `k_theta` | 0.3 | CLF heading 가중치 |
+| `lambda_hocbf` | 2.0 | 5D HOCBF 캐스케이드 계수 (16장 λ1 역할) |
+| `k_vel` | 3.0 | 5D 속도 오차 게인 (backstepping-lite) |
+| `use_analytic` | True | False면 항상 SLSQP (디버깅용, ~10배 느림) |
+
+### 한계
+
+- **5D CLF 품질**: ẇ_d ≈ 0 근사로 추적 열화 — 완전 backstepping
+  또는 MPC-CLF 하이브리드가 개선 방향
+- **국소성**: 예측 없음 → 복잡 지형에서 local minima
+  (접선 투영 히스테리시스로 완화하지만 보장 아님)
+- **연속시간 조건**: 이산 적분 오차는 safety_margin으로만 흡수
+- **수렴 지점 오프셋**: 레퍼런스에서 lookahead_d 이내 잔류 오차
+
+### 언제 사용
+
+- **계산 극한** 환경 (µs 예산, 샘플링/GPU 불가) — 20배 빠름
+- 안전 인증이 필요한 최후 방어선 (hard 제약 + 100% feasibility)
+- 기구학 모델 + 단순 장애물 — MPPI 대비 추적 손실 거의 없음
+- 동역학 5D 정밀 추적이 목표면 MPPI barrier 비용이 우세
+
+**참조**: Ames, Xu, Grizzle, Tabuada (2017) IEEE TAC
+"Control Barrier Function Based Quadratic Programs for Safety
+Critical Systems"; Ames et al. (2019) ECC survey;
+cbfkit `cbf_clf_qp_generator`
+
+---
+
+## 21. 안전 기법 선택 가이드
 
 ### 의사결정 트리
 
 ```
 안전 기법 선택
 │
+├─ 상대 차수? (가장 먼저 확인 — 1.6절/16장)
+│  ├─ rd=2 (가속도/토크 제어) → HOCBFCost (rd=2) — 1차 CBF는 무력
+│  └─ rd=1 (속도 제어) → 아래 계속
+│
 ├─ 안전 보장 수준?
 │  ├─ Hard (100%) ─┬─ 다단계 검증? → Gatekeeper / MPS
 │  │               ├─ 롤아웃 내부? → Shield-MPPI
-│  │               └─ 사후 필터?   → QP Filter
+│  │               └─ 사후 필터?   → QP Filter / HOCBFFilter
 │  ├─ Soft (비용) ─┬─ 이진 거부?   → HardCBFCost
 │  │               ├─ 시간 할인?   → HorizonWeightedCBFCost
+│  │               ├─ 2차 캐스케이드? → HOCBFCost
 │  │               └─ 기본?        → ControlBarrierCost
 │  └─ 확률적 ─────┬─ 분포 무관?   → Conformal + Shield
-│                  └─ 가우시안?    → C2U-MPPI (ChanceConstraint)
+│                  ├─ 유계 외란?   → RobustCBFCost
+│                  ├─ 경로 전체 보장? → RiskAwareCBFCost (ρ)
+│                  └─ 가우시안 point-wise? → C2U-MPPI (ChanceConstraint)
 │
 ├─ 장애물 형태?
 │  ├─ 비볼록 → Neural CBF
@@ -2613,8 +3585,12 @@ r_eff(m)↑
 ├─ QP 실현 가능성 우려?
 │  └─ Yes → Optimal-Decay CBF
 │
+├─ 계산 예산?
+│  └─ 극한 (µs, 샘플링 불가) → CBF-QP / CLF-CBF-QP (20장, ~0.1 ms)
+│
 └─ 모델 불확실성?
    ├─ 시변 → Conformal + Shield
+   ├─ 유계 → RobustCBFCost
    └─ 정적 → C2U-MPPI
 ```
 
@@ -2641,9 +3617,18 @@ r_eff(m)↑
 │ C2U (Chance)     │ Prob.  │ O(n²)  │ ✗     │ ✗      │ ✓     │
 │ Shield-DIAL      │ Hard   │ O(I·K) │ ✗     │ ✗      │ ✗     │
 │ Adaptive-DIAL    │ Hard   │ O(I·K) │ ✗     │ ✗      │ ✗     │
+├──────────────────┼────────┼────────┼────────┼────────┼────────┤
+│ HOCBF Cost (16장)│ Soft   │ O(K)   │ ✗     │ ✗      │ ✗ §   │
+│ HOCBF Filter     │ Hard†  │ O(1)   │ ✗     │ ✗      │ ✗     │
+│ Stochastic CBF   │ Soft   │ O(K)   │ ✗     │ ✗      │ △ ¶   │
+│ RiskAware CBF    │ Prob.  │ O(K)   │ ✗     │ ✗      │ ✓     │
+│ Robust CBF       │ Soft   │ O(K)   │ ✗     │ ✗      │ ✓     │
+│ CLF-CBF-QP       │ Hard†  │ O(1)   │ ✗     │ ✓      │ ✗     │
+│ CBF-QP           │ Hard†  │ O(1)   │ ✗     │ ✓      │ ✗     │
 └──────────────────┴────────┴────────┴────────┴────────┴────────┘
 
 † QP 실현 가능 시  ‡ ω=0이면 제약 무효화  * 1e6 비용으로 사실상 거부
+§ 유일하게 rd=2 동역학 대응  ¶ Itô 항이 볼록 barrier를 완화 — 17장 참조
 ```
 
 ### 시나리오별 추천
@@ -2657,6 +3642,16 @@ r_eff(m)↑
 | 실시간 제약 | QP Filter | O(1) 사후 처리 |
 | 최고 안전 + 성능 | Adaptive-Shield-DIAL | 어닐링 + 적응 + 안전 |
 | QP 실현 불가 우려 | Optimal-Decay | 항상 실현 가능 |
+| **가속도/토크 제어 (rd=2)** | **HOCBFCost (rd=2)** | 유일하게 제어가 영향 가능한 조건 — 1차 대비 클리어런스 2~7배 (16장) |
+| **프로세스 노이즈 + 확률 보장** | **RiskAwareCBFCost ρ=0.05~0.1** | P(min_t h<0) ≤ ρ 명시 보장, 전 시드 충돌 0 (18장) |
+| **프로세스 노이즈 + 추적 중시** | **RobustCBFCost (w_max ≈ 1σ/dt)** | 충돌 0 + 근접 Vanilla RMSE — 안전-per-추적 최고 (19장) |
+| **계산 극한 (µs 예산)** | **CBF-QP / CLF-CBF-QP** | ~0.1 ms (MPPI의 1/20), 항상 안전 — 5D 추적 열화 감수 (20장) |
+| 결정론적 기구학 (rd=1, 무노이즈) | 기존 ControlBarrierCost로 충분 | 신규 기법 불필요 — 단, 더 나은 추적을 원하면 HOCBFCost 고려 |
+
+> 주의: 이산 CBF 비용(ControlBarrierCost)은 **노이즈 하에서
+> 3/3 시드 충돌**했다 (벤치마크 시나리오 C). 프로세스 노이즈가
+> 있다면 barrier 형태와 무관하게 명시적 불확실성 마진
+> (RiskAware/Robust)이 필수다.
 
 ### 복합 안전 전략 추천
 
@@ -2693,6 +3688,13 @@ r_eff(m)↑
   백업: QP Filter (O(1), 위반 시에만)
 
   결과: 최소 계산으로 합리적 안전
+
+전략 4: cbfkit-inspired 스택 (16~20장)
+
+  계획: HOCBFCost (모델 rd에 맞춤) 또는 RiskAwareCBFCost (노이즈 시)
+  액추에이션 shield: HOCBFFilter 또는 CBF-QP (~0.1 ms)
+
+  결과: rd=2/노이즈 대응 계획 + hard 제약 최후 방어
 ```
 
 ### 안전 검증 체크리스트
@@ -2777,3 +3779,9 @@ r_eff(m)↑
 12. Tonkens, S. & Herbert, S. (2022). "Refining Control Barrier Functions through Hamilton-Jacobi Reachability." IROS.
 13. Ferlez, J. & Shao, Y. (2020). "Neural CBF: Learning Barrier Certificates for Safety-Critical Systems." CDC.
 14. Williams, G. et al. (2017). "Information Theoretic MPC for Model-Based Reinforcement Learning." ICRA.
+15. Xiao, W. & Belta, C. (2019). "Control Barrier Functions for Systems with High Relative Degree." CDC.
+16. Clark, A. (2021). "Control Barrier Functions for Complete and Incomplete Information Stochastic Systems." Automatica.
+17. Black, M., Fainekos, G., Hoxha, B., Prokhorov, D. & Panagou, D. (2023). "Safety Under Uncertainty: Tight Bounds with Risk-Aware Control Barrier Functions." CDC.
+18. Jankovic, M. (2018). "Robust Control Barrier Functions for Constrained Stabilization of Nonlinear Systems." Automatica.
+19. Ames, A., Xu, X., Grizzle, J. & Tabuada, P. (2017). "Control Barrier Function Based Quadratic Programs for Safety Critical Systems." IEEE TAC.
+20. Black, M., Ubellacker, W. et al. (2024). "CBFKit: A Control Barrier Function Toolbox for Robotics Applications." arXiv:2404.07158.
