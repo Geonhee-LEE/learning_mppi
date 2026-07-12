@@ -23,7 +23,7 @@
 6. [Shielding 계열 — rollout 내부 강제의 득과 실](#6-shielding-계열--rollout-내부-강제의-득과-실)
 7. [안전-성능 트레이드오프 정량화 — 벤치마크 데이터로 보기](#7-안전-성능-트레이드오프-정량화--벤치마크-데이터로-보기)
 8. [연습문제](#8-연습문제)
-9. [추천 자료](#9-추천-자료)
+9. [부록 — 더 공부하기 위한 자료](#9-부록--더-공부하기-위한-자료)
 
 ---
 
@@ -760,7 +760,13 @@ RiskAware가 η = 0.14, ρ = 0.05, t = 1.0 s를 준다. 각 마진을 계산하�
 
 ---
 
-## 9. 추천 자료
+## 9. 부록 — 더 공부하기 위한 자료
+
+> 본문을 다 읽은 뒤의 자습 가이드. 링크는 2026-07 기준이며, 확신할 수 없는
+> arXiv ID는 싣지 않고 제목+학회만 표기했습니다. CBF 기초 쪽 자료는
+> [03_CBF_FUNDAMENTALS.md §11](03_CBF_FUNDAMENTALS.md) 부록이 담당합니다.
+
+### 9.1 주석 달린 핵심 레퍼런스
 
 **계열별 원전:**
 
@@ -790,7 +796,61 @@ RiskAware가 η = 0.14, ρ = 0.05, t = 1.0 s를 준다. 각 마진을 계산하�
    Control" (Annual Reviews in Control 2023).** — 이 문서 전체(층위 스펙트럼)
    를 조망하는 서베이. **§1을 읽은 뒤 가장 먼저 읽기를 권합니다.**
 
-**이 repo 내부 (실습 경로):**
+10. **Alshiekh, Bloem, Ehlers, Könighofer, Niekum, Topcu, "Safe Reinforcement
+    Learning via Shielding", AAAI 2018 (arXiv:1708.08611).**
+    — "shield"라는 용어의 출처. 학습 정책 위에 런타임 안전 계층을 얹는
+    관점(§1의 층위 3)의 RL 쪽 원전.
+
+### 9.2 최근 연구 동향 (2024–2026)
+
+1. **Safety filter 통일 이론.** CBF 필터/HJ 필터/predictive safety filter를
+   "명목 정책과 안전 정책 사이의 최소 개입"이라는 하나의 프레임으로 묶는
+   흐름 (Hsu–Hu–Fisac 서베이 계열). 이 문서 §1의 3층위 스펙트럼이 이 관점의
+   축소판이다.
+2. **학습 기반 reachability의 스케일업.** 격자 HJ 솔버(차원 ≤5~6)의 한계를
+   신경망 근사(DeepReach 계보)로 돌파하고, 근사 오차에 대한 인증을 붙이는
+   연구. DualGuard의 signed distance+TTC 근사(§3.4)는 이 스펙트럼의
+   "가장 값싼 끝"에 해당한다.
+3. **Shielded RL / 학습 정책의 런타임 보증 표준화.** 학습된 정책을 배포할 때
+   predictive safety filter나 CBF 필터를 기본 계층으로 얹는 패턴이
+   사실상 표준이 되는 중 (Wabersich–Zeilinger 계열).
+4. **파운데이션 모델·생성 정책의 안전 계층.** VLA/diffusion 정책의 출력에
+   안전 필터를 결합하거나 생성 과정 자체에 제약을 주입 (SafeDiffuser,
+   arXiv:2306.00148) — [05 문서](05_GENERATIVE_MODELS_FOR_CONTROL.md) 부록
+   B와 만나는 지점.
+5. **확률적/risk-aware 안전의 실기 검증.** martingale·CP 기반 마진이 논문을
+   넘어 툴박스(cbfkit, arXiv:2404.07158)와 하드웨어 데모로 내려오는 중.
+   이 repo의 risk_sweep 벤치마크(§7.2)는 그 재현 실험이다.
+6. **Runtime Assurance (RTA) 프레임워크.** 항공 분야 Simplex 아키텍처
+   (신뢰 컨트롤러 + 감시자 + 스위치)를 로보틱스로 이식하는 흐름 —
+   gatekeeper(§2)가 정확히 이 구조의 로보틱스 판.
+
+### 9.3 오픈소스 생태계
+
+| 이름 | 링크 | 언어 | 특징 | 이 repo와의 관계 |
+|---|---|---|---|---|
+| hj_reachability | github.com/StanfordASL/hj_reachability | Python/JAX | HJ PDE 격자 솔버 | §3의 "정확한 BRT" 계산 도구 |
+| helperOC + ToolboxLS | github.com/HJReachability/helperOC | MATLAB | HJ reachability 고전 표준 도구 | §3 이론 검증용 |
+| OptimizedDP | github.com/SFU-MARS/optimized_dp | Python | HJ/DP 격자 솔버 (heterocl 가속) | §3, 파이썬 대안 |
+| DeepReach | github.com/smlbansal/deepreach | PyTorch | 신경망 기반 고차원 reachability | §9.2 동향 2 |
+| gatekeeper | github.com/dev10110/gatekeeper | C++/ROS2 | gatekeeper 원저자 구현 (쿼드로터) | §2의 원본, repo `gatekeeper.py`와 대조 |
+| cbfkit | github.com/bardhh/cbfkit | Python/JAX | stochastic/risk-aware CBF 등 | §4.4 martingale 마진의 출처 |
+| safe-control-gym | github.com/learnsyslab/safe-control-gym | Python | 안전 RL/제어 벤치마크 | 외부 검증 환경 후보 |
+
+### 9.4 자주 궁금한 점 → 어디를 볼까
+
+| 궁금한 점 | 내부 자료 | 외부 자료 |
+|---|---|---|
+| 무한 시간 안전을 보장하려면? | §2 gatekeeper + `gatekeeper.py` | Gurriet 계열, gatekeeper 논문 |
+| 백업 정책은 어떻게 설계? | §2.4 + `backup_controller.py` (정지/회전) | backup set 문헌 |
+| HJ와 CBF 중 뭘 쓸까? | §3.5 비교 (HJ=최악케이스 최적·오프라인 비쌈, CBF=온라인 저렴·보수성 수동 튜닝) | Bansal CDC 2017 |
+| 확률 보장, 세 계보 중 선택은? | §4 비교표 (UT=가우시안 전파, CP=분포 무가정, martingale=경로 전체 보장) | Angelopoulos CP 입문 |
+| shield가 성능을 죽이면? | §6 완화책 표 + ESS 모니터링 | Shield-MPPI 논문 |
+| RL 정책에 안전을 붙이려면? | §1 층위 3 + §9.2 동향 3 | Alshiekh AAAI 2018, Wabersich |
+| 안전-성능 균형을 정량화하려면? | §7 지표 사전 + risk_sweep 재현 명령 | Hsu 서베이 |
+| 여러 안전 층을 조합하려면? | §1 스위스 치즈 + SAFETY_THEORY §21 전략 4 | — |
+
+### 9.5 이 repo 내부 (실습 경로)
 
 - 이론 레퍼런스: [docs/SAFETY_THEORY.md](../SAFETY_THEORY.md) §4–§14 (기존 기법),
   §16–§20 (cbfkit-inspired 5종), §21 (의사결정 트리와 비교 매트릭스).

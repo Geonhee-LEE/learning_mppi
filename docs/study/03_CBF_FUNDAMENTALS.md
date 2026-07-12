@@ -24,7 +24,7 @@
 8. [CBF의 실패 모드와 이 repo의 해법 매핑](#8-cbf의-실패-모드와-이-repo의-해법-매핑)
 9. [Discrete-time CBF — MPPI 비용으로 쓸 때](#9-discrete-time-cbf--mppi-비용으로-쓸-때)
 10. [연습문제](#10-연습문제)
-11. [추천 자료](#11-추천-자료)
+11. [부록 — 더 공부하기 위한 자료](#11-부록--더-공부하기-위한-자료)
 
 ---
 
@@ -850,7 +850,14 @@ robust_cbf_margin.py (유계 오차) 또는 parameter_robust_mppi.py (온라인 
 
 ---
 
-## 11. 추천 자료
+## 11. 부록 — 더 공부하기 위한 자료
+
+> 본문을 다 읽은 뒤의 자습 가이드. 링크는 2026-07 기준이며, 확신할 수 없는
+> arXiv ID는 싣지 않고 제목+학회만 표기했습니다. 고급 안전(HJ/gatekeeper/
+> 확률 보장) 쪽 자료는 [04_ADVANCED_SAFETY.md §9](04_ADVANCED_SAFETY.md)
+> 부록이 담당합니다.
+
+### 11.1 주석 달린 핵심 레퍼런스
 
 **필독 (이 순서대로):**
 
@@ -877,14 +884,68 @@ robust_cbf_margin.py (유계 오차) 또는 parameter_robust_mppi.py (온라인 
 7. Gurriet et al., "Scalable Safety-Critical Control of Robotic Systems",
    2020 — backup set / gatekeeper 계열 (다음 문서에서 상세히).
 
-**강의/영상:**
+8. Dawson, Gao, Fan, "Safe Control with Learned Certificates: A Survey of
+   Neural Lyapunov, Barrier, and Contraction Methods", IEEE T-RO 2023
+   (arXiv:2202.11762) — 학습 기반 인증서(§11.2 동향 1)의 표준 서베이.
+   repo의 `neural_cbf_cost.py`가 이 계열.
+
+### 11.2 최근 연구 동향 (2024–2026)
+
+1. **Neural CBF: 합성 + 검증의 결합.** h(x)를 신경망으로 학습하되
+   Lipschitz 상수/SMT 솔버로 사후 검증해 "학습했지만 보장은 형식적"인
+   인증서를 만드는 흐름. 입문은 Dawson 서베이(위 8번), repo 구현은
+   `neural_cbf_cost.py`/`neural_cbf_filter.py`.
+2. **생성 모델 정책과 CBF의 결합.** diffusion/flow 정책의 denoising 과정에
+   barrier 조건을 주입해 "생성되는 궤적 자체가 안전"하도록 만드는 계열
+   (대표: SafeDiffuser, arXiv:2306.00148). 이 repo 관점에선
+   [05_GENERATIVE_MODELS_FOR_CONTROL.md](05_GENERATIVE_MODELS_FOR_CONTROL.md)
+   부록 B와 만나는 지점.
+3. **고차원 시스템으로 확장.** 매니퓰레이터/휴머노이드의 whole-body 안전
+   (자기충돌·관절한계를 다수 barrier로), reduced-order model 위에 CBF를 걸고
+   전신 제어로 전파하는 Ames 그룹 계열. relative degree 문제(§7)가 실전에서
+   왜 중요한지 보여주는 응용처.
+4. **데이터 기반 불확실성과 CBF.** conformal prediction 마진(repo의
+   Conformal-CBF), GP 잔차 마진, 분포 강건(distributionally robust) CBF 등
+   "모델 오차를 데이터로 정량화해 barrier에 반영"하는 흐름 —
+   SAFETY_THEORY.md §12, §17–19와 직결.
+5. **툴박스 생태계 성숙.** cbfkit(arXiv:2404.07158) 같은 범용 CBF 툴박스가
+   등장, 이 repo도 그중 5종을 numpy로 포팅했다
+   ([CBFKIT_INSPIRED_SAFETY.md](../CBFKIT_INSPIRED_SAFETY.md)).
+
+### 11.3 오픈소스 생태계
+
+| 이름 | 링크 | 언어 | 특징 | 이 repo와의 관계 |
+|---|---|---|---|---|
+| cbfkit | github.com/bardhh/cbfkit | Python/JAX | CBF-CLF-QP, stochastic/risk-aware CBF, ROS2 | 5종 기법의 원본 (§16–20 포팅 출처) |
+| safe_control | github.com/tkkim-robot/safe_control | Python | CBF-QP, MPC-CBF 구현체 | `mppi_vs_safe_control_benchmark.py`로 직접 비교 |
+| safe-control-gym | github.com/learnsyslab/safe-control-gym | Python/PyBullet | 안전 RL/제어 벤치마크 환경 (quadrotor 등) | 외부 검증 환경 후보 |
+| CBF 예제 (Ames 그룹 AMBER Lab) | github.com/HybridRobotics (조직) | MATLAB/Python | CBF-MPC, 이족보행 등 응용 예제 | 응용 사례 참고 |
+| 이 repo | — | Python/numpy | CBF 비용/필터/QP 27종 + MPPI 결합 | `mppi_controller/controllers/mppi/` |
+
+### 11.4 강의/영상
 
 - Aaron Ames의 ECC 2019 tutorial 세션 및 Caltech AMBER Lab 강의 영상 —
   "safety as invariance" 관점의 직관 설명이 좋습니다.
 - UC Berkeley Hybrid Systems Lab (Claire Tomlin) 강의 노트 — HJ reachability
   관점과의 대비 (04_ADVANCED_SAFETY.md §3의 배경).
+- MIT Underactuated Robotics (Tedrake) 중 Lyapunov/verification 장 —
+  CLF 쪽 기초를 보강할 때.
 
-**이 repo 내부:**
+### 11.5 자주 궁금한 점 → 어디를 볼까
+
+| 궁금한 점 | 내부 자료 | 외부 자료 |
+|---|---|---|
+| 움직이는 장애물은 어떻게? | SAFETY_THEORY §6 C3BF, §7 DPCBF | collision cone CBF 논문 계열 |
+| 장애물이 여러 개면? | `clf_cbf_qp.py` (제약 행 추가), §5 | Ames TAC 2017 §V |
+| 로봇이 장애물 앞에서 멈춰버림 (deadlock) | §8 실패 모드 1 + DRPA-MPPI (`drpa_mppi.py`) | reactive planner deadlock 문헌 |
+| QP가 infeasible이 되면? | §8 실패 모드 2 + SAFETY_THEORY §9 optimal-decay ω | Zeng ACC 2021 |
+| 모델이 부정확한데 보장이 유효한가? | SAFETY_THEORY §19 Robust CBF, PR-MPPI | Jankovic Automatica 2018 |
+| 노이즈 아래 확률적 보장을 원함 | SAFETY_THEORY §17–18 + 04 §4 | Black et al. 계열 |
+| 가속도 제어(rd=2) 모델이면? | §7 + SAFETY_THEORY §16 HOCBF | Xiao & Belta TAC 2022 |
+| h를 손으로 설계하기 어려움 | `neural_cbf_cost.py` | Dawson 서베이 (arXiv:2202.11762) |
+| CBF를 MPC/MPPI 제약으로 넣으려면? | §9 discrete CBF + `cbf_cost.py` | Zeng ACC 2021 |
+
+### 11.6 이 repo 내부
 
 - [docs/SAFETY_THEORY.md](../SAFETY_THEORY.md) — 22종 안전 기법 레퍼런스
   (§1 기초 유도, §3 QP 상세, §15 선택 가이드).

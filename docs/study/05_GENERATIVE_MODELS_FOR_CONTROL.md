@@ -28,7 +28,7 @@
 5. [학습 제안 분포의 공통 설계 패턴](#5-학습-제안-분포의-공통-설계-패턴)
 6. [비교표 — 6가지 학습 제안 분포](#6-비교표--6가지-학습-제안-분포)
 7. [연습문제](#7-연습문제)
-8. [추천 자료](#8-추천-자료)
+8. [부록 (Appendix)](#8-부록-appendix) — 주석 달린 레퍼런스 / 최근 동향 / 오픈소스 / 강의 / FAQ
 
 ---
 
@@ -868,38 +868,160 @@ Flow-MPPI를 `replace_distribution` 모드, blend 없이, 온라인 학습으로
 
 ---
 
-## 8. 추천 자료
+## 8. 부록 (Appendix)
 
-### 핵심 논문 (이 문서의 유도가 따르는 순서)
+> 기존 "추천 자료" 절을 흡수·확장한 심화 학습 부록.
+> 모든 arXiv/GitHub 링크는 2026-07 기준 웹 검색으로 실재 여부를 확인했다.
+
+### A. 주석 달린 핵심 레퍼런스
+
+이 문서의 유도가 따르는 순서 → 제어 응용 순으로 배열. 각 항목 2문장 주석.
+
+**생성 모델 이론 (본문 §2–4의 원전)**
 
 1. **Lipman et al. (2023)** — *Flow Matching for Generative Modeling* (ICLR 2023).
-   CFM 정리의 원전. Theorem 1-3과 OT 경로 섹션만 읽어도 4장 전체가 커버된다.
-2. **Vincent (2011)** — *A Connection Between Score Matching and Denoising Autoencoders*.
-   DSM 트릭의 원전. 4페이지로 짧다.
-3. **Song & Ermon (2019)** — *Generative Modeling by Estimating Gradients of the Data
-   Distribution* (NeurIPS 2019). NCSN — σ 스케줄과 annealed Langevin의 원전.
-4. **Ho et al. (2020)** — *Denoising Diffusion Probabilistic Models*.
-   DDPM. Song et al. (2021) *DDIM*과 함께 읽을 것 (가속 샘플링).
-5. **Kingma & Welling (2014)** — *Auto-Encoding Variational Bayes*. VAE/ELBO 원전.
+   [arXiv:2210.02747](https://arxiv.org/abs/2210.02747)
+   CFM 정리(본문 4.2절)의 원전으로, 시뮬레이션-free CNF 학습과 OT 경로의 우월성을 제시했다.
+   Theorem 1–3과 OT 경로 섹션만 읽어도 4장 전체가 커버된다.
+2. **Tong et al. (2024)** — *Improving and Generalizing Flow-Based Generative Models
+   with Minibatch Optimal Transport*.
+   [arXiv:2302.00482](https://arxiv.org/abs/2302.00482)
+   CFM을 임의의 source 분포(가우시안 불필요)로 일반화하고 minibatch OT 결합(OT-CFM)을 제안했다.
+   본 저장소가 쓰는 "순수 직선 보간" I-CFM의 정식화가 이 논문에 있으며, torchcfm 라이브러리의 근간이다.
+3. **Liu, Gong & Liu (2023)** — *Flow Straight and Fast: Learning to Generate and
+   Transfer Data with Rectified Flow* (ICLR 2023).
+   [arXiv:2209.03003](https://arxiv.org/abs/2209.03003)
+   직선 경로 ODE를 독립적으로 제안하고, reflow(재직선화) 반복으로 1-스텝 생성까지 가능함을 보였다.
+   4.3절 연습문제 3의 "교차점에서의 평균 속도장" 논의가 reflow의 동기다.
+4. **Vincent (2011)** — *A Connection Between Score Matching and Denoising Autoencoders*
+   (Neural Computation 23(7):1661–1674).
+   [MIT Press](https://direct.mit.edu/neco/article-abstract/23/7/1661/7677) (DOI: 10.1162/NECO_a_00142)
+   DSM 트릭(본문 3.2절 증명)의 원전으로, ESM ↔ DSM의 gradient 등가성을 4쪽 분량으로 증명한다.
+   diffusion 학습 목적함수 전체가 이 한 편의 정리 위에 서 있다.
+5. **Song & Ermon (2019)** — *Generative Modeling by Estimating Gradients of the Data
+   Distribution* (NeurIPS 2019).
+   [arXiv:1907.05600](https://arxiv.org/abs/1907.05600)
+   NCSN — 다중 σ 스케줄 + annealed Langevin dynamics(본문 3.3절)의 원전.
+   SG-MPPI의 `SigmaEmbedding`과 기하 σ 스케줄이 이 논문의 직계다.
+6. **Song et al. (2021)** — *Score-Based Generative Modeling through Stochastic
+   Differential Equations* (ICLR 2021).
+   [arXiv:2011.13456](https://arxiv.org/abs/2011.13456)
+   NCSN과 DDPM을 연속시간 SDE 하나로 통합하고, 확률 흐름 ODE(probability flow ODE)를 도입했다.
+   "diffusion의 ODE는 FM의 특수한 경로 선택"이라는 4.4절 표의 근거가 여기 있다.
+7. **Ho, Jain & Abbeel (2020)** — *Denoising Diffusion Probabilistic Models* (NeurIPS 2020).
+   [arXiv:2006.11239](https://arxiv.org/abs/2006.11239)
+   DDPM — ε 예측 파라미터화와 DSM의 동형성(본문 3.4절)을 확립한 실용화의 분기점.
+   가속 샘플링은 Song et al. *DDIM* ([arXiv:2010.02502](https://arxiv.org/abs/2010.02502))과 함께 읽을 것 — `diffusion_mppi.py`의 `DDIMSampler`가 그 구현이다.
 
-### 제어 응용
+**제어/로보틱스 응용 (본문 §1, 4.5–4.6의 배경)**
 
-6. **Chi et al. (2023)** — *Diffusion Policy* (RSS 2023). 생성 모델을 정책으로 쓰는
-   대표작. 다중 모달 행동 표현의 실증.
-7. **Kurtz & Burdick (2025)** — *Generative Predictive Control* (GPC).
-   이 저장소 Flow-MPPI의 self-supervised 루프의 직접적 원형.
-8. **Trevisan & Alonso-Mora (2024)** — *Biased-MPPI* (RA-L). 제안 분포 교체의
-   정당화 (1.4절 정리). arXiv:2401.09241.
-9. **Hafner et al. (2020)** — *Dream to Control* (Dreamer, ICLR 2020).
-   잠재 공간 계획의 대표작 — Latent-MPPI의 배경.
-10. **Liu et al. (2023)** — *Rectified Flow* (ICLR 2023) + Tong et al. (2023)
-    *Improved CFM*. 직선 경로 계열의 정리와 reflow 기법.
+8. **Chi et al. (2023)** — *Diffusion Policy: Visuomotor Policy Learning via Action
+   Diffusion* (RSS 2023, IJRR 2024).
+   [arXiv:2303.04137](https://arxiv.org/abs/2303.04137)
+   행동 시퀀스를 조건부 diffusion으로 생성하는 정책 — 다중 모달 행동 표현의 실증 대표작.
+   receding horizon + 행동 청크 실행 구조는 MPPI의 warm start와 정확히 같은 문제의식이다.
+9. **Janner et al. (2022)** — *Planning with Diffusion for Flexible Behavior Synthesis*
+   (Diffuser, ICML 2022).
+   [arXiv:2205.09991](https://arxiv.org/abs/2205.09991)
+   궤적 전체를 diffusion으로 생성하며 "샘플링 = 계획"으로 만든 diffusion planning의 시조.
+   classifier guidance로 비용/보상을 주입하는 방식이 SG-MPPI의 score bias와 개념적으로 맞닿는다.
+10. **Ke, Gkanatsios & Fragkiadaki (2024)** — *3D Diffuser Actor: Policy Diffusion with
+    3D Scene Representations*.
+    [arXiv:2402.10885](https://arxiv.org/abs/2402.10885)
+    3D 장면 표현 + 언어 조건 위에서 end-effector 궤적을 denoising하는 정책으로 RLBench SOTA를 세웠다.
+    Diffusion Policy 계보가 "고차원 조건부(장면·언어)"로 진화하는 방향을 보여주는 이정표.
+11. **Kurtz & Burdick (2025)** — *Generative Predictive Control: Flow Matching Policies
+    for Dynamic and Difficult-to-Demonstrate Tasks*.
+    [arXiv:2502.13406](https://arxiv.org/abs/2502.13406) ·
+    [코드](https://github.com/vincekurtz/gpc)
+    "샘플링 기반 MPC로 데이터 생성 → flow 학습 → 학습된 flow로 제안 분포 개선"의 교대 루프를 제안했다.
+    본 저장소 Flow-MPPI의 self-supervised 루프(4.5절 (c))의 직접적 원형이다.
+12. **Drgoňa et al.** — *Learning Constrained Adaptive Differentiable Predictive Control
+    Policies With Guarantees*.
+    [arXiv:2004.11184](https://arxiv.org/abs/2004.11184)
+    MPC 손실과 제약 페널티를 폐루프 미분 가능 모델로 역전파해 명시적 정책을 학습하는 DPC의 원전.
+    Step-MPPI(4.6절)가 "장기 호라이즌 목적을 학습 시점에 흡수한다"고 할 때의 이론적 배경이다.
 
-### 강의/입문 자료
+> 본문에서 이미 다룬 **Trevisan & Alonso-Mora (2024)** *Biased-MPPI*
+> ([arXiv:2401.09241](https://arxiv.org/abs/2401.09241), 1.4절 제안 분포 교체 정당화)와
+> **Kingma & Welling (2014)** *Auto-Encoding Variational Bayes*
+> ([arXiv:1312.6114](https://arxiv.org/abs/1312.6114), 2.1절 ELBO)도 함께 참고.
 
-- Yang Song의 블로그 *"Generative Modeling by Estimating Gradients of the Data Distribution"* — score 계열 최고의 입문.
-- MIT 6.S184 / Peter Holderrieth의 *Flow Matching and Diffusion Models* 강의 노트 — FM과 diffusion을 통합 관점으로.
-- Lilian Weng, *"What are Diffusion Models?"* — DDPM 수식 전개 정리.
+### B. 최근 연구 동향 (2024–2026)
+
+1. **Flow matching이 로봇 파운데이션 정책의 표준 출력 헤드가 되다** —
+   Physical Intelligence의 **π0** (*A Vision-Language-Action Flow Model for General
+   Robot Control*, [arXiv:2410.24164](https://arxiv.org/abs/2410.24164), RSS 2025)는
+   사전학습 VLM 위에 flow matching 액션 헤드를 얹어 50Hz 실시간 제어를 달성했다.
+   "이산 토큰 대신 연속 flow로 행동을 출력"하는 설계가 VLA 계열의 주류가 되는 중 —
+   4장의 CFM이 최신 로봇 파운데이션 모델의 핵심 부품임을 보여준다.
+
+2. **Diffusion policy의 가속: 반복 denoising을 1~수 스텝으로** —
+   **Consistency Policy** ([arXiv:2405.07503](https://arxiv.org/abs/2405.07503), RSS 2024)는
+   사전학습 diffusion policy를 consistency distillation으로 증류해 추론을 한 자릿수 스텝으로 줄였고,
+   **Shortcut Models** ([arXiv:2410.12557](https://arxiv.org/abs/2410.12557), ICLR 2025)는
+   스텝 크기를 조건으로 받는 단일 네트워크로 증류 없이 1-스텝 생성을 달성했다.
+   "실시간 제어 주기 안에 생성"이라는 4.4절의 제약이 이 하위 분야 전체의 동력이다.
+
+3. **생성 모델 × 모델 기반 최적화의 하이브리드** —
+   **Model-Based Diffusion** ([arXiv:2407.01573](https://arxiv.org/abs/2407.01573),
+   NeurIPS 2024)은 데이터 없이 동역학 모델로 score를 직접 계산해 역확산을 궤적 최적화기로 쓴다
+   (MPPI처럼 모델 rollout 기반이면서 형식은 diffusion — 본 저장소 SG/Flow-MPPI와 정확히 같은 교차점).
+   **GPC** ([arXiv:2502.13406](https://arxiv.org/abs/2502.13406))는 반대 방향에서
+   샘플링 MPC의 해를 flow로 증류한다 — "최적화가 데이터를 만들고, 생성 모델이 최적화를 가속"하는 루프.
+
+4. **안전 제약과 생성 정책의 결합 (guided/constrained sampling)** —
+   **SafeDiffuser** ([arXiv:2306.00148](https://arxiv.org/abs/2306.00148), ICLR 2025)는
+   CBF 기반 불변성(diffusion invariance)을 denoising 과정 자체에 심어
+   생성된 계획의 안전을 보증한다. 03·04편의 안전 필터 이론이 생성 모델 내부로
+   들어가는 추세 — "생성 후 필터링"에서 "안전한 것만 생성"으로의 이동이다.
+
+5. **World model 기반 잠재 공간 계획의 성숙** —
+   **DreamerV3** ([arXiv:2301.04104](https://arxiv.org/abs/2301.04104))는 단일
+   하이퍼파라미터로 150+ 태스크를 풀었고, **TD-MPC2**
+   ([arXiv:2310.16828](https://arxiv.org/abs/2310.16828), ICLR 2024)는 decoder-free
+   잠재 공간에서 MPPI류 로컬 궤적 최적화를 수행한다. 본 저장소의 Latent-MPPI /
+   World-Model-MPPI(39th)가 이 계보의 최소 구현 — 2.2절의 "Dream to Control"
+   아이디어가 범용 에이전트의 표준 아키텍처로 자리 잡았다.
+
+### C. 오픈소스 생태계
+
+정책/계획 관련 생성 모델 라이브러리만 선별 (2026-07 기준 실재·활성 확인):
+
+| 저장소 | 무엇 | 이 문서와의 연결 |
+|--------|------|----------------|
+| [atong01/conditional-flow-matching](https://github.com/atong01/conditional-flow-matching) | **torchcfm** — CFM/OT-CFM 표준 구현 (Tong et al. 공식) | §4.2–4.3의 모든 변형(I-CFM, OT-CFM, SB-CFM)을 몇 줄로 실험 가능 |
+| [facebookresearch/flow_matching](https://github.com/facebookresearch/flow_matching) | Meta 공식 FM 라이브러리 (연속+이산 FM, [FM Guide](https://arxiv.org/abs/2412.06264) 동반 코드) | Lipman 계열의 레퍼런스 구현 — 경로/솔버 추상화 설계 참고 |
+| [real-stanford/diffusion_policy](https://github.com/real-stanford/diffusion_policy) | Diffusion Policy 공식 코드 (RSS 2023) | §B-2의 출발점 — 행동 청크 + receding horizon 구조 |
+| [huggingface/lerobot](https://github.com/huggingface/lerobot) | 로봇 학습 종합 라이브러리 (Diffusion Policy, ACT, π0 계열 VLA 포팅) | 최신 생성 정책들의 실전 구현·데이터셋 허브 |
+| [CleanDiffuserTeam/CleanDiffuser](https://github.com/CleanDiffuserTeam/CleanDiffuser) | 의사결정 특화 diffusion 모듈 라이브러리 ([arXiv:2406.09509](https://arxiv.org/abs/2406.09509), NeurIPS 2024) | Diffuser/Diffusion Policy 등 9개 알고리즘을 블록 조립식으로 재현 |
+| [lucidrains/denoising-diffusion-pytorch](https://github.com/lucidrains/denoising-diffusion-pytorch) | DDPM 미니멀 구현 (1D 시퀀스 버전 포함) | §3.4 수식 ↔ 코드 대응을 가장 빨리 확인할 수 있는 참고 구현 |
+
+> 이 저장소의 `flow_matching_trainer.py`(~200 LOC)는 torchcfm의 I-CFM 경로와 수학적으로 동일하다.
+> 외부 의존성 없이 원리를 익히려면 이 저장소 코드를, 고급 변형(OT 커플링, SB)을 실험하려면 torchcfm을 쓰면 된다.
+
+### D. 더 공부하기 (강의/블로그)
+
+| 자료 | 링크 | 추천 이유 |
+|------|------|----------|
+| **MIT 6.S184** — *Flow Matching and Diffusion Models* (Holderrieth & Erives) | [diffusion.csail.mit.edu](https://diffusion.csail.mit.edu/) | FM과 diffusion을 ODE/SDE 통합 관점으로 — 본 문서 §3–4의 확장판. [강의 노트 PDF](https://diffusion.csail.mit.edu/docs/lecture-notes.pdf)와 [YouTube 강의](https://www.youtube.com/playlist?list=PL57nT7tSGAAUDnli1LhTOoCxlEPGS19vH) 공개 |
+| **Stanford CS236** — *Deep Generative Models* (Ermon) | [deepgenerativemodels.github.io](https://deepgenerativemodels.github.io/) | VAE→flow→score→diffusion 전체 계보를 한 학기 커리큘럼으로. [2023 강의 영상](https://www.youtube.com/playlist?list=PLoROMvodv4rPOWA-omMM6STXaWW4FvJT8) 공개 |
+| **Yang Song 블로그** — *Score-Based Generative Modeling* | [yang-song.net/blog](https://yang-song.net/blog/) | score 계열 최고의 입문 — §3의 그림 버전. NCSN/SDE 저자 본인의 해설 |
+| **Lilian Weng** — *What are Diffusion Models?* | [lilianweng.github.io](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/) | DDPM 수식 전개를 빠짐없이 정리한 표준 레퍼런스 노트 |
+| **Flow Matching Guide and Code** (Lipman et al.) | [arXiv:2412.06264](https://arxiv.org/abs/2412.06264) | FM의 "교과서" — 이론+PyTorch 코드 동반. 논문보다 체계적인 입문서 |
+
+### E. FAQ 포인터
+
+| 질문 | 어디를 볼 것 |
+|------|-------------|
+| **CFM 학습이 잘 안 되면?** | §5.4 분포 붕괴 방어 표 + §5.3 학습 주기(소량 epoch 자주). `FlowMatchingTrainer`의 입출력 정규화 통계 확인, `flow_min_samples` 이전에 학습이 시작되지 않았는지 점검 |
+| **Diffusion과 CFM 중 뭘 쓸까?** | §4.4 비교표 (실시간이면 5-스텝 직선 ODE의 CFM 우세) + §6 적합 상황 행 (오프라인 대량 데이터면 Diffusion) |
+| **온라인으로 배우려면 전문가 데이터가 필요한가?** | 불필요 — §4.5(c) self-supervised 루프. MPPI의 softmax 가중 평균 해(elite)를 `FlowDataCollector` ring buffer에 재활용하는 것이 이 repo의 패턴 (GPC 방식) |
+| **생성 모델 샘플에 MPPI softmax 가중치를 그대로 써도 되나?** | §1.4 Biased-MPPI 정리 — 증강 비용 관점에서 q_s가 소거됨. 연습문제 1로 손 유도 확인 |
+| **학습 전/학습 실패 시 성능 하락이 걱정된다** | §5.2 "학습 전 = Vanilla" 불변식 (zero-init vs fallback 두 방식) + blend 모드 보험 (§4.5(b)) |
+| **10Hz 제어 주기를 못 맞춘다** | §4.4 (적분 스텝 수 = NN forward 횟수), `num_steps`/`diff_ddim_steps` 축소, midpoint→Euler 전환, 학습을 별도 주기로 (§5.3) |
+| **다중 모달 해가 실제로 필요한 상황인지 어떻게 아나?** | §1.2 한계 1 (장애물 양쪽 회피) + §6 다중모달성 행. `flow_mppi_benchmark.py --scenario multimodal`로 체감 |
+| **분포 붕괴를 어떻게 감지하나?** | info dict의 `ess` 모니터링 (ESS 급감 = 붕괴 신호) + §5.4. MinClearance와 ESS를 함께 보는 연습문제 4(c) 실험 설계 참고 |
 
 ### 이 저장소에서 이어서 볼 것
 

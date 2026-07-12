@@ -21,7 +21,7 @@
 7. [변형 분류 체계 — 43개를 5+1개 축으로](#7-변형-분류-체계--43개를-51개-축으로)
 8. [알려진 한계와 연구 전선 (2026)](#8-알려진-한계와-연구-전선-2026)
 9. [연습문제](#9-연습문제)
-10. [추천 논문](#10-추천-논문)
+10. [부록 — 더 공부하기 위한 자료](#10-부록--더-공부하기-위한-자료)
 
 ---
 
@@ -819,39 +819,205 @@ python examples/kinematic/mppi_differential_drive_kinematic_demo.py --trajectory
 
 ---
 
-## 10. 추천 논문
+## 10. 부록 — 더 공부하기 위한 자료
 
-**필독 코어 (유도를 따라가며 읽을 것)**
-- Williams, Aldrich, Theodorou, "Model Predictive Path Integral Control:
-  From Theory to Parallel Computation," *J. Guidance, Control, and
-  Dynamics*, 2017 — §3 유도의 원전.
-- Williams et al., "Information-Theoretic Model Predictive Control:
-  Theory and Applications to Autonomous Driving," *IEEE T-RO*, 2018 —
-  free energy 하한 + 실차 적용. §1, §3.2의 원전.
-- Kappen, "Path integrals and symmetry breaking for optimal control
-  theory," *J. Stat. Mech.*, 2005 — §2의 원전 (log 변환, 경로적분).
-- Theodorou, Buchli, Schaal, "A Generalized Path Integral Control
-  Approach to Reinforcement Learning" (PI²), *JMLR*, 2010 — 경로적분을
-  정책 개선으로.
+> 기존 "추천 논문" 절을 확장한 자습(self-study) 부록. 외부 링크는 2026-07
+> 기준 존재/접근을 확인한 것만 실었다. MPC 쪽 배경 자료는
+> [01_MPC_FUNDAMENTALS.md §9](01_MPC_FUNDAMENTALS.md) 부록이 담당하고,
+> 변형별 상세 레퍼런스는 [MPPI_THEORY.md](../MPPI_THEORY.md) 각 절에 있다.
 
-**배경 보강**
-- Todorov, "Linearly-solvable Markov decision problems," NeurIPS 2006 —
-  이산 MDP에서의 같은 선형화 (KL 제어).
-- Botev et al., "The Cross-Entropy Method for Optimization," 2013 —
-  CEM: MPPI의 사촌 (elite 평균 vs softmax 평균).
+### 10.1 주석 달린 핵심 레퍼런스
 
-**이 repo 변형들의 대표 원전** (전체 목록은 [MPPI_THEORY.md](../MPPI_THEORY.md) 각 절)
-- Williams et al., "Robust Sampling Based MPPI," IROS 2018 — Tube-MPPI.
-- Trevisan & Alonso-Mora, RA-L 2024 (arXiv:2401.09241) — Biased-MPPI (§7.1).
-- Kicki, arXiv:2503.11717 — LP-MPPI (§7.1).
-- Yin et al., "Trajectory Distribution Control for MPPI... Tsallis," 2021 —
-  가중치 축 (§7.2).
-- Honda et al., ICRA 2024 — SVG-MPPI; Lambert et al., 2020 — SVMPC (다중 모달).
-- arXiv:2603.24489 — PGD-MPPI; arXiv:2605.07801 — TR-MPPI (§8.2 재해석).
-- Homburger et al., arXiv:2512.04579 — GN-MPPI (2차 정보).
-- Wang et al., ICLR 2025 — Residual-MPPI; arXiv:2604.01539 — Step-MPPI (§7.5).
+읽는 순서 추천: ①②(유도 원전) → ⑤(조감) → 관심 분기 (다중 모달이면 ⑦⑧,
+스무딩이면 ⑨, 실전 배포면 ⑪⑫).
 
-**이 repo에서 이어서 볼 것**
+1. **Williams, Aldrich, Theodorou, "Model Predictive Path Integral Control:
+   From Theory to Parallel Computation," *J. Guidance, Control, and
+   Dynamics*, 2017.**
+   §3 유도의 원전 — importance sampling 보정과 GPU 병렬 구현을 함께 다룬다.
+   §3.6의 유도 지도를 손에 들고 원문의 수식 번호와 대조하며 읽는 것이
+   이 문서의 최종 목표다.
+
+2. **Williams et al., "Information-Theoretic Model Predictive Control:
+   Theory and Applications to Autonomous Driving," *IEEE T-RO*, 2018 —
+   [arXiv:1707.02342](https://arxiv.org/abs/1707.02342).**
+   free energy 하한(§1, §3.2)의 원전이자 AutoRally 실차 검증 논문.
+   유도가 ①보다 정돈되어 있어, 둘 중 하나만 정독한다면 이쪽을 권한다.
+
+3. **Kappen, "Path integrals and symmetry breaking for optimal control
+   theory," *J. Stat. Mech.*, 2005 —
+   [arXiv:physics/0505066](https://arxiv.org/abs/physics/0505066).**
+   §2의 원전 — log 변환(Cole-Hopf)으로 HJB를 선형화하고 경로적분으로 푼다.
+   물리 배경이 있다면 MPPI 계보의 뿌리를 보는 재미가 있고, 없어도 §2를
+   읽었다면 도입부와 예제(symmetry breaking = 다중 모달)는 따라갈 수 있다.
+
+4. **Theodorou, Buchli, Schaal, "A Generalized Path Integral Control
+   Approach to Reinforcement Learning" (PI²), *JMLR*, 2010.**
+   경로적분 제어를 정책 개선(policy improvement)으로 확장한 다리 논문.
+   Kappen(이론)과 Williams(알고리즘) 사이의 역사적 연결 고리가 궁금할 때 읽는다.
+
+5. **Kazim, Hong, Kim, Kim, "Recent Advances in Path Integral Control for
+   Trajectory Optimization," *Annual Reviews in Control*, 2024 —
+   [arXiv:2309.12566](https://arxiv.org/abs/2309.12566).**
+   CEM·MPPI·피드백 파라미터화까지 경로적분 계열 전체를 정리한 서베이.
+   이 문서 §7의 분류 축을 학계 표준 용어와 맞춰볼 때 — 새 논문을 읽기 전
+   좌표계를 세우는 용도로 가장 좋다.
+
+6. **Todorov, "Linearly-solvable Markov decision problems," NeurIPS 2006.**
+   이산 MDP에서 같은 선형화(KL 제어)가 성립함을 보인 병렬 이론.
+   §1의 변분 등식이 연속/이산을 가리지 않는 구조임을 확인하고 싶을 때 읽는다.
+
+7. **Lambert et al., "Stein Variational Model Predictive Control," CoRL 2020 —
+   [arXiv:2011.07641](https://arxiv.org/abs/2011.07641).**
+   MPC를 베이지안 추론으로 캐스팅하고 SVGD로 다중 모달 사후분포를 유지한다.
+   §8.1-1 (가우시안 moment matching의 정보 손실)을 체감한 뒤 읽으면
+   `stein_variational_mppi.py`가 왜 필요한지 명확해진다.
+
+8. **Honda et al., "Stein Variational Guided Model Predictive Path Integral
+   Control," ICRA 2024 — [arXiv:2309.11040](https://arxiv.org/abs/2309.11040).**
+   SVGD로 제안 분포를 최빈 모드 근처로 유도한 뒤 MPPI를 수행 — repo
+   SVG-MPPI(`svg_mppi.py`)의 원전. ⑦의 실용화 버전으로, 고속 주행 실험까지
+   포함한다.
+
+9. **Kim et al., "Smooth Model Predictive Path Integral Control without
+   Smoothing," *RA-L*, 2022 —
+   [arXiv:2112.09988](https://arxiv.org/abs/2112.09988).**
+   제어 대신 제어 증분(ΔU)을 샘플링하는 input lifting으로 채터링을 제거 —
+   repo Smooth-MPPI의 원전. §4.2의 "σ와 매끄러움" 트레이드오프를 겪은 뒤
+   읽으면 좋다 (LP-MPPI [arXiv:2503.11717](https://arxiv.org/abs/2503.11717)와
+   접근을 비교해 볼 것).
+
+10. **Trevisan, Alonso-Mora, "Biased-MPPI," *RA-L*, 2024 —
+    [arXiv:2401.09241](https://arxiv.org/abs/2401.09241).**
+    보조 정책 혼합 제안 분포에서 importance weight의 분모가 소거되는 §7.1의
+    정리를 담은 논문. 짧고 자기완결적이라 "MPPI 유도를 이해했는지" 스스로
+    시험하는 첫 논문으로 적합하다.
+
+11. **Vlahov, Gibson, Gandhi, Theodorou, "MPPI-Generic: A CUDA Library for
+    Stochastic Trajectory Optimization," 2024 —
+    [arXiv:2409.07563](https://arxiv.org/abs/2409.07563).**
+    Vanilla/Tube/Robust MPPI를 템플릿화한 C++/CUDA 라이브러리 논문 —
+    GPU 커널 수준의 성능 공학을 다룬다. 이 repo의 `_compute_control_gpu()`를
+    본 뒤 "진짜 프로덕션 GPU 구현"이 궁금할 때 읽는다.
+
+12. **"Model Predictive Control via Probabilistic Inference: A Tutorial and
+    Survey" — [arXiv:2511.08019](https://arxiv.org/abs/2511.08019).**
+    MPPI·CEM·변분 추론 계열 MPC를 "확률 추론으로서의 제어" 관점에서 통합
+    정리한 튜토리얼. §1-3을 다 소화한 뒤 지식을 재배열하는 마무리 독서로 좋다.
+
+**배경 보강**: Botev et al., "The Cross-Entropy Method for Optimization"
+(2013) — CEM은 MPPI의 사촌 (elite 평균 vs softmax 평균). Yin et al.,
+"Trajectory Distribution Control ... Tsallis" (2021) — 가중치 축(§7.2)의 원전.
+
+### 10.2 최근 연구 동향 (2024–2026)
+
+이 repo의 변형 43종이 이미 따라간 계보이기도 하다 — 각 동향에 repo
+구현과 대표 논문을 함께 적는다.
+
+1. **스무딩 계열의 다변화 — 시간 도메인에서 주파수/투영/파라미터화로.**
+   input lifting (SMPPI, [arXiv:2112.09988](https://arxiv.org/abs/2112.09988))
+   → 주파수 도메인 LPF (LP-MPPI,
+   [arXiv:2503.11717](https://arxiv.org/abs/2503.11717)) → QP 투영으로
+   jerk/snap hard 보장 (π-MPPI,
+   [arXiv:2504.10962](https://arxiv.org/abs/2504.10962)).
+   repo: `smooth_mppi.py`, `lp_mppi.py`, `projection_mppi.py` (§7.1, §7.3).
+
+2. **학습 제안 분포 / amortization.**
+   백색 가우시안 대신 "좋은 후보"를 학습으로 만든다 — Transformer 초기화
+   (T-MPPI, [arXiv:2412.17118](https://arxiv.org/abs/2412.17118)), 샘플링
+   분포 자체의 Stein 최적화
+   ([arXiv:2511.02015](https://arxiv.org/abs/2511.02015)), proposal을
+   오프라인 학습해 단일 스텝으로 (Step-MPPI, arXiv:2604.01539).
+   repo: `transformer_mppi.py`, `flow_mppi.py`, `score_guided_mppi.py`,
+   `step_mppi.py` (§7.5).
+
+3. **2차 정보·최적화 이론과의 합류 (§8.2의 전선).**
+   MPPI = 전처리 경사 하강 재해석 (PGD-MPPI, arXiv:2603.24489) → KL 신뢰
+   영역 (TR-MPPI, arXiv:2605.07801) → 가우스-뉴턴 가속 (GN-MPPI,
+   [arXiv:2512.04579](https://arxiv.org/abs/2512.04579)) → 이차 모델 근사로
+   분산 축소 ([arXiv:2602.03639](https://arxiv.org/abs/2602.03639)).
+   repo: `pgd_mppi.py`, `tr_mppi.py`, `gn_mppi.py` (§7.3).
+
+4. **결정론적/저분산 샘플링.**
+   Halton/Sobol/sigma point로 몬테카를로 분산 자체를 제거하는 노선 —
+   C-Uniform 궤적 샘플러
+   ([arXiv:2503.05819](https://arxiv.org/abs/2503.05819)), STL 비용의
+   결정론적 경로적분 최적화
+   ([arXiv:2503.01476](https://arxiv.org/abs/2503.01476)).
+   repo: `deterministic_mppi.py`(dsMPPI), TR-MPPI의 `HaltonLCDSampler` (§4.3).
+
+5. **GPU/시뮬레이터 통합 프레임워크.**
+   MPPI-Generic ([arXiv:2409.07563](https://arxiv.org/abs/2409.07563),
+   C++/CUDA 템플릿), Isaac Gym 물리 시뮬레이터를 동역학 모델로 직접 쓰는
+   mppi-isaac (ICRA 2023 워크숍,
+   [github](https://github.com/tud-amr/mppi-isaac)), 매니퓰레이터 실시간
+   반응 제어 STORM ([arXiv:2104.13542](https://arxiv.org/abs/2104.13542)).
+   "동역학을 코딩하지 않고 시뮬레이터를 f로 쓴다"가 공통 아이디어 —
+   §1.2 성질 2의 극단이다.
+
+6. **안전 결합과 필드 배포.**
+   CBF/reach-avoid를 MPPI 비용·필터로 통합
+   ([arXiv:2407.13693](https://arxiv.org/abs/2407.13693)), chance constraint
+   + 안전 실드 ([arXiv:2408.00494](https://arxiv.org/abs/2408.00494)),
+   비정형 환경 반발 포텐셜 내비게이션 (DRPA-MPPI,
+   [arXiv:2503.20134](https://arxiv.org/abs/2503.20134)), 오프로드 확률
+   하이브리드 시스템의 risk-aware MPPI
+   ([arXiv:2411.09198](https://arxiv.org/abs/2411.09198)).
+   repo: `shield_mppi.py`, `dualguard_mppi.py`, `drpa_mppi.py`,
+   `risk_aware_mppi.py` (§7.4).
+
+### 10.3 오픈소스 생태계
+
+| 이름 | 링크 | 언어 | 특징 | 이 repo와의 관계 |
+|------|------|------|------|-----------------|
+| pytorch_mppi | [github.com/UM-ARM-Lab/pytorch_mppi](https://github.com/UM-ARM-Lab/pytorch_mppi) | Python (PyTorch) | 가장 널리 쓰이는 경량 MPPI + SMPPI/KMPPI 변형 | `base_mppi.py`와 가장 비슷한 급 — 구현 대조 학습에 최적 |
+| MPPI-Generic | [github.com/ACDSLab/MPPI-Generic](https://github.com/ACDSLab/MPPI-Generic) | C++/CUDA | 템플릿 기반 고성능, Vanilla/Tube/Robust 내장 (GaTech) | GPU 경로(`_compute_control_gpu`)의 프로덕션급 상위 호환 |
+| mppi-isaac | [github.com/tud-amr/mppi-isaac](https://github.com/tud-amr/mppi-isaac) | Python | Isaac Gym rollout — 동역학 코딩 불필요, 접촉 과제 | `dynamics_wrapper.rollout()`을 물리 시뮬레이터로 치환한 형태 |
+| STORM | [github.com/NVlabs/storm](https://github.com/NVlabs/storm) | Python (PyTorch) | 매니퓰레이터 joint-space MPPI, ~125Hz (NVIDIA) | 모바일 로봇 중심인 이 repo의 매니퓰레이터판 참고 구현 |
+| AutoRally | [github.com/AutoRally/autorally](https://github.com/AutoRally/autorally) | C++/ROS | MPPI 원 실험 플랫폼 (1/5 스케일 오프로드 차량, GaTech) | §10.1-①② 논문의 실차 코드 — 역사적 원본 |
+| pytorch_icem | [github.com/UM-ARM-Lab/pytorch_icem](https://github.com/UM-ARM-Lab/pytorch_icem) | Python (PyTorch) | iCEM (improved Cross-Entropy Method) 병렬 구현 | CEM vs MPPI (elite 평균 vs softmax) 비교 실험용 |
+| mppi_playground | [github.com/kohonda/mppi_playground](https://github.com/kohonda/mppi_playground) | Python (PyTorch) | 시각화 중심 MPPI 놀이터 | 예제/벤치마크 구성이 이 repo `examples/`와 유사 — 교차 검증용 |
+| smooth-mppi-pytorch | [github.com/tkkim-robot/smooth-mppi-pytorch](https://github.com/tkkim-robot/smooth-mppi-pytorch) | Python (PyTorch) | SMPPI 저자 구현 | `smooth_mppi.py`(ΔU 리프팅)의 원저자 코드와 대조 |
+| CBFkit | [github.com/bardhh/cbfkit](https://github.com/bardhh/cbfkit) | Python/ROS2 (JAX) | CBF 안전 제어 툴킷, MPPI 통합 ([arXiv:2404.07158](https://arxiv.org/abs/2404.07158)) | repo 안전 계열의 직접 영감 — [docs/CBFKIT_INSPIRED_SAFETY.md](../CBFKIT_INSPIRED_SAFETY.md) 참조 |
+| learning_mppi (이 repo) | `mppi_controller/` | Python (NumPy/PyTorch) | 43종 변형 + 22종 안전 제어 + 학습 모델, 단일 인터페이스 | 위 라이브러리들이 각각 1-3개 변형을 다루는 것과 달리 축 전체를 커버 |
+
+### 10.4 더 공부하기 — 서베이·강의·튜토리얼
+
+- **서베이/튜토리얼 논문**: Kazim et al.
+  ([arXiv:2309.12566](https://arxiv.org/abs/2309.12566), §10.1-⑤) →
+  확률 추론 관점 통합 튜토리얼
+  ([arXiv:2511.08019](https://arxiv.org/abs/2511.08019)). 이 두 편이면
+  2026년 기준 지형도가 완성된다.
+- **영상**: AutoRally의 [MPPI 설명 영상](https://autorally.github.io/mppi-video/)
+  — 원저자 그룹의 직관 설명. Tedrake *Underactuated Robotics*
+  ([OCW](https://ocw.mit.edu/courses/6-832-underactuated-robotics-spring-2022/))
+  의 궤적 최적화 장은 §4.3(제어 시퀀스 공간의 차원)의 배경.
+- **코드로 배우기**: [pytorch_mppi](https://github.com/UM-ARM-Lab/pytorch_mppi)
+  README의 최소 예제를 이 repo `base_mppi.py`와 나란히 놓고 §6 대응표를
+  양쪽에 적용해 보라 — 같은 알고리즘의 두 구현을 대조하면 컨벤션(시프트
+  순서, 클리핑 시점)의 차이가 선명해진다.
+- **최적화 배경**: Boyd & Vandenberghe *Convex Optimization*
+  ([무료 PDF](https://stanford.edu/~boyd/cvxbook/)) — §8.2의 "MPPI =
+  전처리 경사 하강" 재해석을 제대로 즐기려면 경사법/신뢰영역의 기초가 필요하다.
+  MPC 쪽 교재 목록은 [01 문서 §9.4](01_MPC_FUNDAMENTALS.md) 참조.
+
+### 10.5 자주 궁금한 점 → 어디를 볼까
+
+| 질문 | 이 repo에서 | 외부에서 |
+|------|------------|----------|
+| MPPI가 local minima에 빠지면? | §8.2 (σ = 스무딩 폭) + 01 문서 연습문제 5; DRPA(`drpa_mppi.py`), DIAL, SVMPC | DRPA-MPPI ([arXiv:2503.20134](https://arxiv.org/abs/2503.20134)), SVMPC ([arXiv:2011.07641](https://arxiv.org/abs/2011.07641)) |
+| 제어가 덜덜 떨린다 (채터링) | §4.2 + §7.1; LP/Smooth/Colored (`lp_mppi.py`, `smooth_mppi.py`) | SMPPI ([arXiv:2112.09988](https://arxiv.org/abs/2112.09988)) |
+| 제약을 hard로 걸고 싶으면? | 01 문서 §5.1 + pi-MPPI(`projection_mppi.py`), CSC-MPPI, CBF-QP 필터 | π-MPPI ([arXiv:2504.10962](https://arxiv.org/abs/2504.10962)) |
+| ESS가 계속 낮게 나온다 | §5.2 증상→처방 표; `AdaptiveTemperature`, ASR/Tsallis | Kazim 서베이 §샘플링 전략 ([arXiv:2309.12566](https://arxiv.org/abs/2309.12566)) |
+| λ, σ를 어떻게 튜닝하나? | §4.1-4.2 (λ·σ는 독립 손잡이가 아님) + 연습문제 3 | Williams T-RO 2018 ([arXiv:1707.02342](https://arxiv.org/abs/1707.02342)) 실험 절 |
+| GPU 가속을 하고 싶다 | `base_mppi.py`의 `_compute_control_gpu()` (§6 포인트 3) | MPPI-Generic ([arXiv:2409.07563](https://arxiv.org/abs/2409.07563)), mppi-isaac, STORM |
+| 샘플 수 K를 줄이고 싶다 | §4.3; dsMPPI(`deterministic_mppi.py`), TR-MPPI Halton, RF-MPPI | C-Uniform 샘플러 ([arXiv:2503.05819](https://arxiv.org/abs/2503.05819)) |
+| 학습 모델을 동역학으로 쓰면? | §7.5 + `models/learned/`; [LEARNING_THEORY.md](../LEARNING_THEORY.md) | Hewing 리뷰 (01 문서 §9.1-⑧) |
+| 안전을 "보장"하고 싶다 | §8.1-3 + §7.4; DualGuard/Shield/C-MPPI; [SAFETY_THEORY.md](../SAFETY_THEORY.md) | CBFkit ([arXiv:2404.07158](https://arxiv.org/abs/2404.07158)), reach-avoid MPPI ([arXiv:2407.13693](https://arxiv.org/abs/2407.13693)) |
+| 유도를 처음부터 다시 보고 싶다 | §1→§3 순서로 재독 + §3.6 지도 | Williams T-RO ([arXiv:1707.02342](https://arxiv.org/abs/1707.02342)), 추론 관점은 [arXiv:2511.08019](https://arxiv.org/abs/2511.08019) |
+
+### 10.6 이 repo에서 이어서 볼 것
+
 - [docs/MPPI_THEORY.md](../MPPI_THEORY.md) — 43개 변형 전체 레퍼런스
 - [docs/study/01_MPC_FUNDAMENTALS.md](01_MPC_FUNDAMENTALS.md) — 선행 문서
 - [docs/LEARNING_THEORY.md](../LEARNING_THEORY.md) — 축 5 (학습 결합)의 이론

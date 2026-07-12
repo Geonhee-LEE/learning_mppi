@@ -21,7 +21,7 @@
 6. [NMPC와 실시간 이슈](#6-nmpc와-실시간-이슈)
 7. [MPC vs MPPI — 왜 이 repo는 MPPI인가](#7-mpc-vs-mppi--왜-이-repo는-mppi인가)
 8. [연습문제](#8-연습문제)
-9. [추천 자료](#9-추천-자료)
+9. [부록 — 더 공부하기 위한 자료](#9-부록--더-공부하기-위한-자료)
 
 ---
 
@@ -766,33 +766,202 @@ local_minima 시나리오에서 Vanilla MPPI조차 갇힐 수 있음을 관찰�
 
 ---
 
-## 9. 추천 자료
+## 9. 부록 — 더 공부하기 위한 자료
 
-**교재**
-- Rawlings, Mayne, Diehl, *Model Predictive Control: Theory, Computation,
-  and Design* (2nd ed., 2017) — MPC 안정성/feasibility의 표준 레퍼런스.
-  §2 (DP), §2.4-2.5 (안정성 정리)가 이 문서 §4의 원전. PDF 무료 공개.
-- Borrelli, Bemporad, Morari, *Predictive Control for Linear and Hybrid
-  Systems* (2017) — QP 정식화, explicit MPC, 불변 집합. §5의 원전.
-- Bertsekas, *Dynamic Programming and Optimal Control* Vol.1 — Bellman
-  원리와 DP의 정석. §2의 원전.
-- Anderson & Moore, *Optimal Control: Linear Quadratic Methods* — LQR 심화.
+> 본문을 다 읽은 뒤의 자습(self-study) 가이드. 외부 링크는 2026-07 기준
+> 접근/존재를 확인한 것만 실었다. MPPI 쪽 심화 자료는
+> [02_MPPI_FUNDAMENTALS.md §10](02_MPPI_FUNDAMENTALS.md) 부록이 담당한다.
 
-**강의 (무료)**
-- Borrelli, UC Berkeley ME231 (Experiential Advanced Control Design) 자료
-- Diehl, *Numerical Optimal Control* 강의 노트 (Freiburg) — shooting/SQP/RTI
-- Boyd, Stanford EE363 (Linear Dynamical Systems) — Riccati/LQR 강의 노트
-- Underactuated Robotics (Tedrake, MIT 6.832) — HJB/LQR/궤적 최적화를
-  로보틱스 관점에서. 온라인 교재 + 영상.
+### 9.1 주석 달린 핵심 레퍼런스
 
-**논문 (MPC 고전)**
-- Mayne, Rawlings, Rao, Scokaert, "Constrained model predictive control:
-  Stability and optimality," *Automatica*, 2000 — terminal ingredient로
-  안정성을 보이는 §4.4 프레임의 원논문.
-- Diehl, Bock, Schlöder, "A real-time iteration scheme for nonlinear
-  optimization in optimal feedback control," *SIAM J. Control Optim.*, 2005.
+읽는 순서 추천: ① → ②(필요한 장만) → ④/⑤(수치 기법) → 이후는 관심 분기
+(학습 결합이면 ⑦⑧, 안전이면 ⑨, RL이면 ⑩).
 
-**이 repo에서 이어서 볼 것**
+1. **Mayne, Rawlings, Rao, Scokaert, "Constrained model predictive control:
+   Stability and optimality," *Automatica*, 2000.**
+   terminal cost + terminal set으로 안정성과 recursive feasibility를 증명하는
+   §4.3-4.4 프레임의 원논문. §4의 증명 스케치를 엄밀한 버전으로 확인하고
+   싶어질 때 읽는다 — MPC 이론의 사실상 "정본"이다.
+
+2. **Rawlings, Mayne, Diehl, *Model Predictive Control: Theory, Computation,
+   and Design* (2nd ed., Nob Hill, 2017) —
+   [저자 공개 PDF](https://sites.engineering.ucsb.edu/~jbraw/mpc/MPC-book-2nd-edition-5th-printing.pdf).**
+   DP·안정성·강건 MPC·수치 기법까지 덮는 표준 교과서로, 저자가 전체 PDF를
+   무료 공개했다. 이 문서 §2/§4의 원전이므로 처음부터 통독하기보다
+   해당 장(Ch.1-2)을 사전처럼 찾아 읽는 용도로 좋다.
+
+3. **Borrelli, Bemporad, Morari, *Predictive Control for Linear and Hybrid
+   Systems* (Cambridge, 2017).**
+   QP 정식화, explicit MPC, 불변 집합 — §5의 원전. hard 제약과 feasibility를
+   집합 이론 수준에서 제대로 다루고 싶을 때 읽는다.
+
+4. **Diehl, Bock, Schlöder, "A real-time iteration scheme for nonlinear
+   optimization in optimal feedback control," *SIAM J. Control Optim.*, 2005.**
+   §6.3 RTI의 원전 — "매 주기 SQP 1회 + warm start"가 참 해를 추적함을 보인다.
+   MPPI의 "매 주기 샘플링 1회 + U 시프트" 구조가 왜 작동하는지의 이론적
+   사촌이므로, §6.3의 평행 구조 표를 본 뒤 읽으면 좋다.
+
+5. **Andersson, Gillis, Horn, Rawlings, Diehl, "CasADi: a software framework
+   for nonlinear optimization and optimal control," *Math. Prog. Comp.*, 2019 —
+   [Springer](https://link.springer.com/article/10.1007/s12532-018-0139-4).**
+   NMPC 프로토타이핑의 사실상 표준 도구 논문 (자동 미분 + 솔버 인터페이스).
+   §5-6의 QP/NLP를 코드로 직접 만들어 보고 싶어지는 시점에 읽는다.
+
+6. **Verschueren et al., "acados — a modular open-source framework for fast
+   embedded optimal control," 2019 —
+   [arXiv:1910.13753](https://arxiv.org/abs/1910.13753).**
+   RTI 계열 실시간 NMPC를 임베디드 C 코드로 뽑아주는 프레임워크 논문.
+   "그래디언트 MPC의 실전 성능이 어디까지 왔나"를 가늠할 때 —
+   §7 비교표의 MPC 쪽 최전선이다.
+
+7. **Amos, Jimenez, Sacks, Boots, Kolter, "Differentiable MPC for End-to-end
+   Planning and Control," NeurIPS 2018 —
+   [arXiv:1810.13400](https://arxiv.org/abs/1810.13400).**
+   MPC 자체를 미분 가능한 정책 계층으로 만들어 비용/동역학을 end-to-end로
+   학습한다 (KKT 조건을 통한 미분). 이 repo의 미분 가능 시뮬레이터
+   (`mppi_controller/models/differentiable/`)와 같은 정신이므로 축 5 학습
+   변형(02 문서 §7.5)을 본 뒤 읽으면 연결이 보인다.
+
+8. **Hewing, Wabersich, Menner, Zeilinger, "Learning-Based Model Predictive
+   Control: Toward Safe Learning in Control," *Annual Review of Control,
+   Robotics, and Autonomous Systems*, 2020 —
+   [Annual Reviews](https://www.annualreviews.org/content/journals/10.1146/annurev-control-090419-075625).**
+   학습 동역학/학습 비용/안전 보증을 아우르는 learning-based MPC 지도 논문.
+   이 repo의 학습 모델 14종이 MPC 진영에서는 어떻게 다뤄지는지 조감할 때 읽는다.
+
+9. **Wabersich, Zeilinger, "A predictive safety filter for learning-based
+   control of constrained nonlinear dynamical systems" —
+   [arXiv:1812.05506](https://arxiv.org/abs/1812.05506).**
+   임의의 (학습) 정책 출력을 받아 "안전하면 통과, 아니면 최소 수정"하는
+   MPC 기반 safety filter의 원전. repo의 CBF-QP 필터
+   (`cbf_safety_filter.py`)와 동일한 필터 아키텍처의 MPC판 — §4.3의
+   recursive feasibility가 실전에서 어떻게 쓰이는지 보여준다.
+
+10. **Bertsekas, "Model Predictive Control and Reinforcement Learning:
+    A Unified Framework Based on Dynamic Programming," 2024 —
+    [arXiv:2406.00592](https://arxiv.org/abs/2406.00592).**
+    MPC와 RL을 "Newton 스텝 = 온라인 재계획, 기저 정책 = 오프라인 학습"으로
+    통합하는 관점 논문. §2의 DP를 이해한 뒤 "MPC냐 RL이냐" 논쟁을 정리하고
+    싶을 때 읽는다.
+
+11. **Kirk, *Optimal Control Theory: An Introduction* (Dover).**
+    변분법·Pontryagin 최소 원리·HJB를 다루는 고전 입문서 (저렴한 Dover판).
+    §2의 HJB 유도가 압축적으로 느껴졌다면 이 책으로 기초를 보강한다.
+
+12. **Bertsekas, *Dynamic Programming and Optimal Control*, Vol. 1.**
+    Bellman 원리와 DP의 정석 — §2의 원전. LQR·확률 DP·근사 DP까지
+    체계적으로 쌓고 싶을 때 (TD-MPPI의 가치함수 학습 배경이기도 하다).
+
+### 9.2 최근 연구 동향 (2024–2026)
+
+MPC 진영이 어디로 가고 있는지 5개 흐름. 각 흐름이 이 repo의 어떤 부분과
+공명하는지 함께 적었다.
+
+1. **미분 가능 MPC의 성숙 — mpc.pytorch에서 Theseus 계보로.**
+   Amos의 mpc.pytorch(2018)에서 시작한 "최적화 계층을 신경망에 삽입" 노선이
+   Meta의 Theseus ([arXiv:2207.09442](https://arxiv.org/abs/2207.09442),
+   희소 솔버 + 배치/GPU + 암묵적 미분) 같은 범용 라이브러리로 성숙했고,
+   최근에는 GPU 위 미분 가능 MPC
+   ([arXiv:2510.06179](https://arxiv.org/abs/2510.06179))처럼 대규모 병렬화와
+   결합되고 있다. repo 대응: `models/differentiable/`, Step-MPPI의 DPC 학습.
+
+2. **실시간 NMPC 솔버 생태계의 표준화 — acados 중심.**
+   acados ([arXiv:1910.13753](https://arxiv.org/abs/1910.13753))가 임베디드
+   NMPC의 사실상 표준이 되면서, 학습 모델(GP 등)을 acados 파이프라인에
+   꽂는 L4acados ([arXiv:2411.19258](https://arxiv.org/abs/2411.19258)) 같은
+   확장이 나오고 있다. §6.3 RTI가 이 생태계의 이론적 핵심이다.
+
+3. **Safety filter로서의 MPC.**
+   "성능은 학습 정책이, 안전은 MPC가"라는 분업 —
+   predictive safety filter ([arXiv:1812.05506](https://arxiv.org/abs/1812.05506)),
+   레이싱 적용 ([arXiv:2102.11907](https://arxiv.org/abs/2102.11907)),
+   필터 자체의 안정성 분석
+   ([arXiv:2404.05496](https://arxiv.org/abs/2404.05496))으로 이어졌다.
+   repo의 `gatekeeper.py`/`cbf_safety_filter.py`가 정확히 이 아키텍처의
+   샘플링 진영 대응물이다.
+
+4. **RL + MPC 결합의 체계화.**
+   Bertsekas의 통합 프레임 ([arXiv:2406.00592](https://arxiv.org/abs/2406.00592))
+   이후, RL로 MPC의 비용/파라미터/기저 정책을 학습하는 아키텍처 비교 연구
+   ([arXiv:2510.03354](https://arxiv.org/abs/2510.03354))가 활발하다.
+   repo의 Residual-MPPI(사전 정책 + 잔차 최적화), TD-MPPI(학습 terminal
+   value)가 같은 질문의 샘플링판 답이다.
+
+5. **Foundation-model-guided MPC.**
+   VLM/LLM이 목표·비용·중간 계획을 생성하고 MPC가 저수준 실행을 담당하는
+   계층 구조 — VLMPC (RSS 2024), VLM 기반 조작 계획·궤적 생성
+   ([arXiv:2504.05225](https://arxiv.org/abs/2504.05225)) 등. "비용 함수를
+   손으로 설계하지 않는다"는 점에서 축 5(학습 결합)의 극단이다.
+
+### 9.3 오픈소스 생태계
+
+직접 설치해서 §5-6의 개념을 실험해 볼 수 있는 도구들 (존재/활성 여부
+2026-07 확인).
+
+| 이름 | 링크 | 언어 | 특징 | 이 repo와의 관계 |
+|------|------|------|------|-----------------|
+| acados | [docs.acados.org](https://docs.acados.org/) | C (Python/MATLAB 인터페이스) | 임베디드 실시간 NMPC, RTI, BLASFEO 기반 | 그래디언트 NMPC 성능 기준선 — §7 비교표의 반대편 실물 |
+| CasADi | [web.casadi.org](https://web.casadi.org/) | C++ (Python/MATLAB) | 자동 미분 + NLP 모델링, acados/rockit의 기반 | §5.2 QP·§6 NLP를 손으로 짜볼 때의 표준 도구 |
+| do-mpc | [github.com/do-mpc/do-mpc](https://github.com/do-mpc/do-mpc) | Python | robust/multi-stage MPC + MHE, 교육 친화적 문서 | Tube-MPPI(§3.3)와 robust MPC를 나란히 실험하기 좋음 |
+| rockit | [github.com/meco-group/rockit](https://github.com/meco-group/rockit) | Python | OCP 신속 프로토타이핑 (CasADi Opti 기반), multi-stage/free end-time | 연습문제 4 같은 소형 OCP를 빠르게 정식화해 검산 |
+| HILO-MPC | [github.com/hilo-mpc/hilo-mpc](https://github.com/hilo-mpc/hilo-mpc) | Python | 학습 모델(TensorFlow/PyTorch)을 MPC에 직접 삽입 ([arXiv:2203.13671](https://arxiv.org/abs/2203.13671)) | repo `models/learned/`와 같은 목표의 MPC 진영 구현 |
+| OCS2 | [github.com/leggedrobotics/ocs2](https://github.com/leggedrobotics/ocs2) | C++ | SLQ/DDP 계열 + SQP/IPM, 사족보행 실기 검증 (ETH RSL) | F-MPPI의 Riccati backward pass(§3.3)와 같은 계열의 산업급 구현 |
+| Crocoddyl | [github.com/loco-3d/crocoddyl](https://github.com/loco-3d/crocoddyl) | C++ (Python 바인딩) | 접촉 하 DDP 최적 제어 ([arXiv:1909.04947](https://arxiv.org/abs/1909.04947)), Pinocchio 기반 | GN-MPPI가 흉내 내는 "2차 정보 활용"의 정통 구현 |
+| mpc.pytorch | [github.com/locuslab/mpc.pytorch](https://github.com/locuslab/mpc.pytorch) | Python (PyTorch) | 미분 가능 MPC 솔버 (박스 제약 iLQR) | §9.2 동향 1의 출발점 — repo 미분 가능 시뮬레이터와 비교 |
+| Theseus | [github.com/facebookresearch/theseus](https://github.com/facebookresearch/theseus) | Python (PyTorch) | 미분 가능 비선형 최소제곱, GPU 배치, 암묵적 미분 | 학습 파이프라인에 최적화 계층을 넣을 때의 현대적 선택지 |
+
+### 9.4 더 공부하기 — 교재·강의·튜토리얼
+
+**교재 (무료 공개 확인)**
+- Rawlings, Mayne, Diehl —
+  [PDF 무료](https://sites.engineering.ucsb.edu/~jbraw/mpc/MPC-book-2nd-edition-5th-printing.pdf) (§9.1-②)
+- Gros & Diehl, *Numerical Optimal Control* (draft) —
+  [PDF 무료](https://www.syscop.de/files/2024ws/NOC/book-NOCSE.pdf).
+  shooting/collocation/SQP/RTI — §6 전체의 교과서 버전.
+- Boyd & Vandenberghe, *Convex Optimization* —
+  [PDF 무료](https://stanford.edu/~boyd/cvxbook/). §5의 QP가 왜 "풀리는
+  문제"인지의 기초 체력.
+- Borrelli, Bemporad, Morari (Cambridge, 2017) — 유료지만 §5 심화의 정석.
+- Kirk (Dover) / Bertsekas Vol.1 / Anderson & Moore *Optimal Control:
+  Linear Quadratic Methods* — §2-3 보강용 고전.
+
+**공개 강의**
+- Boyd, Stanford EE364A (Convex Optimization) —
+  [강의 영상+자료](https://see.stanford.edu/Course/EE364A). LQR 심화는
+  Boyd의 EE363 (Linear Dynamical Systems) 강의 노트.
+- Tedrake, *Underactuated Robotics* (MIT 6.832) —
+  [OCW](https://ocw.mit.edu/courses/6-832-underactuated-robotics-spring-2022/) +
+  [GitHub 교재](https://github.com/RussTedrake/underactuated).
+  HJB/LQR/궤적 최적화를 로보틱스 관점에서 — 이 문서와 가장 결이 같은 강의.
+- Diehl, Numerical Optimal Control (Freiburg) —
+  [강의 페이지](https://www.syscop.de/teaching/ss2020/numerical-optimal-control-online)
+  (영상 + 위 draft 교재).
+- Borrelli, UC Berkeley ME231 자료 — explicit MPC/불변 집합 (Borrelli 교재와 세트).
+
+**튜토리얼/문서**
+- [do-mpc 문서](https://github.com/do-mpc/do-mpc) — robust MPC를 코드 예제로
+  익히기 가장 빠른 경로.
+- [acados 문서](https://docs.acados.org/) — RTI를 실물 파라미터
+  (`nlp_solver_type = SQP_RTI`)로 만져볼 수 있다.
+- [CasADi 예제집](https://web.casadi.org/) — §5.2 condensed QP를 20줄로 재현 가능.
+
+### 9.5 자주 궁금한 점 → 어디를 볼까
+
+| 질문 | 이 repo에서 | 외부에서 |
+|------|------------|----------|
+| 제약을 hard로 걸고 싶으면? | §5.1 + pi-MPPI(`projection_mppi.py`), CSC-MPPI, CBF-QP 필터 | Borrelli 교재 (§9.1-③), OSQP/qpOASES 문서 |
+| terminal cost는 어떻게 정하나? | §4.4 + TD-MPPI(`td_mppi.py`, 학습 가치함수) | Rawlings 등 교재 Ch.2, Mayne 2000 (§9.1-①) |
+| 솔버가 제어 주기 안에 안 끝나면? | §6.3-6.4 + `backup_controller.py`, `gatekeeper.py` | RTI 논문 (§9.1-④), acados `SQP_RTI` |
+| 안정성 증명을 처음부터 따라가려면? | §3.4 (LQR Lyapunov) → §4.4 (MPC 일반화) | Mayne 2000, Rawlings 등 교재 §2.4-2.5 |
+| recursive feasibility가 왜 깨지나? | §4.3 + 연습문제 4; C-MPPI/DualGuard/Gatekeeper | predictive safety filter ([arXiv:1812.05506](https://arxiv.org/abs/1812.05506)) |
+| 학습 모델을 예측 모델로 쓰려면? | 02 문서 §7.5 + `models/learned/` 14종 | Hewing 리뷰 (§9.1-⑧), HILO-MPC, L4acados |
+| MPC를 미분해서 비용/모델을 학습하려면? | `models/differentiable/` + Step-MPPI(DPC) | Amos 2018 (§9.1-⑦), Theseus, mpc.pytorch |
+| RL과 MPC 중 무엇을 쓰나? | Residual-MPPI(사전 정책+잔차), TD-MPPI(가치 학습) | Bertsekas ([arXiv:2406.00592](https://arxiv.org/abs/2406.00592)) |
+| LQR 게인은 어떻게 설계/검산하나? | §3.5 + 연습문제 3, `feedback_mppi.py`, `ancillary_controller.py` | Boyd EE363 노트, Anderson & Moore |
+| 샘플링(MPPI)으로 넘어갈 준비가 됐는지? | §7 비교표 + 연습문제 5 | — 다음 문서 [02_MPPI_FUNDAMENTALS.md](02_MPPI_FUNDAMENTALS.md)로 |
+
+### 9.6 이 repo에서 이어서 볼 것
+
 - [docs/study/02_MPPI_FUNDAMENTALS.md](02_MPPI_FUNDAMENTALS.md) — 다음 문서
 - [docs/MPPI_THEORY.md](../MPPI_THEORY.md) §1-2 — HJB→MPPI 요약 + Vanilla 해설
 - `mppi_controller/controllers/mppi/feedback_mppi.py` — Riccati 재귀 실물

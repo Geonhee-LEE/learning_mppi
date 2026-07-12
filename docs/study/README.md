@@ -112,6 +112,26 @@ ring buffer + elite selection, zero-init graceful degradation 등
 
 ---
 
+## 부록 안내 — 각 문서의 심화 학습 부록 (A–E)
+
+01–05 각 문서의 말미에는 본문을 넘어 스스로 공부를 이어갈 수 있도록
+**동일한 구조의 부록 A–E**가 붙어 있다:
+
+| 부록 | 내용 | 활용법 |
+|------|------|--------|
+| **A. 주석 달린 핵심 레퍼런스** | 해당 분야 원전 논문 10여 편 + 각 2문장 주석 (arXiv 링크 검증됨) | 본문의 유도가 어느 논문의 어느 정리인지 역추적할 때 |
+| **B. 최근 연구 동향 (2024–2026)** | 분야별 최신 흐름 4–6개, 대표 논문 링크 | 서베이/논문 아이디어 발굴, "지금 어디까지 왔나" 파악 |
+| **C. 오픈소스 생태계** | 주제별 실전 라이브러리 표 (실재/활성 확인됨) | 이 repo 밖에서 실험을 확장할 때 (아래 "오픈소스 맵"이 전체 요약) |
+| **D. 더 공부하기** | 공개 강의·교재·블로그 (링크 확인됨) | 본문이 압축한 이론의 풀 버전 수강 |
+| **E. FAQ 포인터** | "~이 안 되면?" → 본문 절/구현 파일 매핑 | 실험 중 막혔을 때 사전식 조회 |
+
+문서별 부록 바로가기:
+[01](01_MPC_FUNDAMENTALS.md) · [02](02_MPPI_FUNDAMENTALS.md) · [03](03_CBF_FUNDAMENTALS.md) ·
+[04](04_ADVANCED_SAFETY.md) · [05](05_GENERATIVE_MODELS_FOR_CONTROL.md)
+(각 문서 목차의 마지막 항목 "부록"으로 이동)
+
+---
+
 ## 기존 레퍼런스 문서와의 관계
 
 | 문서 | 성격 | 이 시리즈와의 관계 |
@@ -157,6 +177,85 @@ PYTHONPATH=. python examples/comparison/step_mppi_benchmark.py --live --scenario
 
 > 헤드리스 환경 규칙: 결과는 `plots/*.png`, `--live`는 `plots/*.mp4`/`*.gif`로 저장됨.
 > 핸드폰 확인: `python -m http.server 8888` → `http://<PC_IP>:8888/plots/`
+
+---
+
+## 이 repo로 실험하며 공부하기 — 궁금증 → 벤치마크 매핑
+
+이론을 읽다가 생기는 전형적인 질문을, 바로 돌려서 답을 확인할 수 있는 실험으로 매핑:
+
+| 궁금증 | 실행할 명령 | 볼 지표 |
+|--------|------------|---------|
+| "λ(temperature)를 바꾸면 탐색-수렴 균형이 정말 변하나?" (02편 §ESS) | `python examples/kinematic/mppi_differential_drive_kinematic_demo.py --trajectory circle --no-plot` 후 `mppi_params.py`의 `temperature` 수정 재실행 | RMSE vs info dict의 `ess` |
+| "샘플 수 K를 줄이면 어떤 변형이 먼저 무너지나?" (02편 샘플링 축) | `PYTHONPATH=. python examples/comparison/deterministic_mppi_benchmark.py --all-scenarios` (dsMPPI는 K=64에서도 동작) | K별 RMSE/충돌 수 |
+| "CBF 비용과 hard 필터는 실제로 뭐가 다른가?" (03편) | `PYTHONPATH=. python examples/comparison/dbas_mppi_benchmark.py --all-scenarios` | MinClearance, 충돌 수, 추적 RMSE 트레이드오프 |
+| "HJ 가치 함수 필터가 CBF보다 나은 상황은?" (04편) | `PYTHONPATH=. python examples/comparison/dualguard_mppi_benchmark.py --all-scenarios` | 시나리오별 MinClearance 비교 |
+| "학습된 제안 분포는 정말 장애물 양쪽 모드를 잡나?" (05편 §1.2) | `PYTHONPATH=. python examples/comparison/flow_mppi_benchmark.py --live --scenario obstacles` | 샘플 궤적 분포 애니메이션 (`plots/*.mp4`) |
+| "온라인 학습 비용은 실시간성을 얼마나 깨뜨리나?" (05편 §5.3) | `PYTHONPATH=. python examples/comparison/step_mppi_benchmark.py --live --scenario online_learning` | SolveMs 추이 (학습 스텝에서의 스파이크) |
+
+---
+
+## 오픈소스 맵 — 주제별 대표 라이브러리 한눈에
+
+각 문서 부록 C의 전체 요약. 이 repo에서 원리를 익힌 뒤 실전 규모로 확장할 때의 진입점
+(링크는 2026-07 기준 확인):
+
+**MPC / 최적 제어 (01편)**
+
+- [acados](https://github.com/acados/acados) — 임베디드급 고속 NMPC 솔버 (C + Python/MATLAB 인터페이스, HPIPM 기반)
+- [do-mpc](https://github.com/do-mpc/do-mpc) — 파이썬 로버스트 MPC/MHE 툴박스 — 프로토타이핑에 최적
+- [CasADi](https://github.com/casadi/casadi) — 위 둘의 기반이 되는 자동미분 + 최적화 심볼릭 프레임워크
+
+**MPPI / 샘플링 기반 제어 (02편)**
+
+- [pytorch_mppi](https://github.com/UM-ARM-Lab/pytorch_mppi) — PyTorch MPPI (SMPPI/KMPPI 변형 + 자동 튜너 포함) — 이 repo와 가장 유사한 스타일
+- [MPPI-Generic](https://github.com/ACDSLab/MPPI-Generic) — C++/CUDA 헤더 온리 MPPI/Tube-MPPI/RMPPI ([논문](https://arxiv.org/abs/2409.07563)) — 실기체 배포급 성능
+- [storm](https://github.com/NVlabs/storm) — NVIDIA GPU 병렬 MPPI 매니퓰레이터 모션 툴킷 (SDF 충돌 비용)
+
+**안전 제어 (03·04편)**
+
+- [cbfkit](https://github.com/bardhh/cbfkit) — JAX 기반 CBF + MPPI 통합 툴박스 (ROS2 지원)
+- [safe_control](https://github.com/tkkim-robot/safe_control) — CBF-QP/MPC-CBF/gatekeeper 등 내비게이션 안전 제어기 모음 (이 repo의 CBFKIT_INSPIRED_SAFETY.md와 연관)
+- [safe-control-gym](https://github.com/learnsyslab/safe-control-gym) — 안전 학습 제어 벤치마크 환경 (PyBullet + CasADi 심볼릭 동역학)
+- [hj_reachability](https://github.com/StanfordASL/hj_reachability) — JAX HJ 도달가능성 솔버 — 04편 HJ 가치 함수의 정식 계산 도구
+
+**생성 모델 × 제어 (05편)**
+
+- [torchcfm](https://github.com/atong01/conditional-flow-matching) — CFM/OT-CFM 표준 구현 — 05편 §4를 코드로
+- [diffusion_policy](https://github.com/real-stanford/diffusion_policy) — Diffusion Policy 공식 코드 (RSS 2023)
+- [lerobot](https://github.com/huggingface/lerobot) — HuggingFace 로봇 학습 허브 (Diffusion Policy·ACT·π0 계열 + 데이터셋)
+
+---
+
+## 최신 동향 한눈에 (2024–2026)
+
+시리즈 전체를 관통하는 분야 횡단 메가트렌드 (각 문서 부록 B의 종합):
+
+1. **생성 모델·파운데이션 모델과 계획의 융합** —
+   flow matching이 로봇 파운데이션 정책(π0 등 VLA)의 표준 액션 헤드가 되고,
+   반대로 샘플링 MPC의 해를 생성 모델로 증류(GPC)하거나 동역학 모델로 score를
+   직접 계산(Model-Based Diffusion)하는 양방향 융합이 진행 중이다.
+   "최적화가 데이터를 만들고 생성 모델이 최적화를 가속"하는 루프가 05편의 핵심 서사다.
+
+2. **안전 필터의 통일 이론화** — CBF, HJ 도달가능성, predictive safety filter가
+   "안전 집합 불변성 + 최소 개입"이라는 하나의 틀로 정리되고 있다.
+   나아가 SafeDiffuser처럼 안전 제약을 생성 과정 내부에 심는 연구가 등장하며
+   "생성 후 필터링"에서 "안전한 것만 생성"으로 무게중심이 이동 중이다 (03·04편).
+
+3. **GPU 병렬 샘플링 계획의 주류화** — MPPI-Generic, storm, JAX 생태계(cbfkit,
+   hj_reachability)가 보여주듯 K개 rollout의 완전 병렬화가 실기체 표준이 되었다.
+   샘플링 기반 방법이 gradient 기반 MPC의 실시간성 우위를 잠식하면서,
+   미분 불가능한 비용(충돌 검사, 학습 모델)을 그대로 쓸 수 있다는 장점이 부각되고 있다.
+
+4. **학습 기반 안전 인증** — 학습된 CBF/가치 함수(neural certificate)와
+   HJ 근사(DeepReach 계열)로 고차원 시스템의 안전 보증을 확장하는 흐름.
+   "학습 요소가 들어가도 학습 전 = 보수적 기본 동작"이라는 graceful degradation
+   설계(이 repo의 zero-init/fallback 패턴)가 실무 표준으로 자리 잡는 중이다 (04·05편).
+
+5. **World model 기반 잠재 공간 계획의 성숙** — DreamerV3가 범용성을,
+   TD-MPC2가 "잠재 공간에서의 MPPI류 로컬 최적화"의 확장성을 입증하며,
+   물리 모델 없이 관측만으로 계획하는 파이프라인이 성숙 단계에 들어섰다.
+   이 repo의 Latent-MPPI/World-Model-MPPI(39th)가 이 계보의 최소 구현이다 (05편 §2).
 
 ---
 
