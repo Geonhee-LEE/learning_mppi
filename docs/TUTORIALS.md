@@ -1,7 +1,7 @@
 # MPPI 튜토리얼 가이드
 
 이 문서는 learning_mppi 프로젝트의 전체 기능을 단계별로 안내합니다.
-43종 MPPI 변형, 22종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
+43종 MPPI 변형, 27종 안전 제어, 14종 학습 모델을 포괄하는 실습 가이드입니다.
 
 ---
 
@@ -18,6 +18,7 @@
 9. [불확실성 기반 제어](#9-불확실성-기반-제어-uncertainty--conformal--c2u-mppi)
 10. [시뮬레이션 환경 (S1-S13)](#10-시뮬레이션-환경-s1-s13)
 11. [GPU 가속](#11-gpu-가속)
+12. [cbfkit-inspired 안전 기법 실습](#12-cbfkit-inspired-안전-기법-실습)
 
 ---
 
@@ -275,7 +276,9 @@ UncertaintyMPPIParams(K=1024, N=30, strategy="two_pass")
 
 ## 5. 안전 제어 (CBF / Shield / Adaptive)
 
-22종 안전 제어 기법을 장애물 환경에서 비교합니다.
+27종 안전 제어 기법을 장애물 환경에서 비교합니다.
+(신규 cbfkit-inspired 5종 — HOCBF / Stochastic / RiskAware / Robust /
+CLF-CBF-QP — 은 [12장](#12-cbfkit-inspired-안전-기법-실습)에서 실습합니다.)
 CBF(Control Barrier Function) 기반 비용 함수, 안전 필터,
 컨트롤러 조합으로 충돌 회피를 보장합니다.
 
@@ -1826,6 +1829,417 @@ print(f"GPU: {torch.cuda.get_device_name(0)}")
 - GPU 가속 시 RMSE는 CPU와 동등 (수치 오차 범위 내)
 - K=8192에서 GPU가 실시간 10Hz 제어 주기 충족 (< 100ms)
 - 샘플 수 증가 시 GPU 가속 비율이 점진적으로 향상
+
+---
+
+## 12. cbfkit-inspired 안전 기법 실습
+
+Toyota Research Institute의 CBF 툴박스 cbfkit(arXiv:2404.07158)에서
+포팅한 5종 안전 기법을 실습합니다:
+HOCBF(고차 CBF), Stochastic CBF(Itô 보정), Risk-Aware CBF(확률 보장),
+Robust CBF(유계 외란), CLF-CBF-QP(네이티브 QP 컨트롤러).
+
+> 이론은 [docs/SAFETY_THEORY.md 15~20장](SAFETY_THEORY.md#15-cbfkit-inspired-확장-개요) 참조.
+> 아래 모든 코드 블록은 실제 실행/검증되었습니다 (`PYTHONPATH=.` 필요).
+
+### 12.1 상대 차수 자동 검출 (detect_relative_degree)
+
+위치 barrier h = ||p - p_obs||² - r² 의 상대 차수(relative degree)는
+"h의 시간 미분에서 제어가 처음 나타나는 차수"입니다.
+기구학 모델(속도 제어)은 1, 동역학 모델(가속도 제어)은 2입니다.
+
+```python
+import numpy as np
+from mppi_controller.models.kinematic.differential_drive_kinematic import (
+    DifferentialDriveKinematic,
+)
+from mppi_controller.models.dynamic.differential_drive_dynamic import (
+    DifferentialDriveDynamic,
+)
+from mppi_controller.controllers.mppi import detect_relative_degree
+
+# 기구학 모델: u = [v, ω] — 속도가 ḣ에 직접 등장 → rd = 1
+kin_model = DifferentialDriveKinematic(v_max=1.5, omega_max=2.0)
+print("kinematic  rd =", detect_relative_degree(kin_model))   # → 1
+
+# 동역학 모델: u = [a, α] — 가속도는 ḣ에 안 나타남 → rd = 2
+dyn_model = DifferentialDriveDynamic()
+print("dynamic 5D rd =", detect_relative_degree(dyn_model))   # → 2
+```
+
+실행 결과:
+```
+kinematic  rd = 1
+dynamic 5D rd = 2
+```
+
+rd = 2에서 1차 CBF 비용(ControlBarrierCost)은 제어가 한 스텝에
+바꿀 수 없는 것을 페널티하므로 사실상 무력합니다 → HOCBF 필요.
+
+### 12.2 HOCBF 비용 (rd=2 동역학 모델)
+
+지수형 캐스케이드 ψ1 = ψ̇0 + λ1·ψ0, 제약 ψ̇1 + λ2·ψ1 ≥ 0 을
+MPPI 궤적 비용으로 부과합니다.
+
+```python
+import numpy as np
+from mppi_controller.models.dynamic.differential_drive_dynamic import (
+    DifferentialDriveDynamic,
+)
+from mppi_controller.controllers.mppi.base_mppi import MPPIController
+from mppi_controller.controllers.mppi.mppi_params import MPPIParams
+from mppi_controller.controllers.mppi.cost_functions import (
+    CompositeMPPICost,
+    StateTrackingCost,
+    TerminalCost,
+    ControlEffortCost,
+)
+from mppi_controller.controllers.mppi import HOCBFCost
+from mppi_controller.utils.trajectory import generate_reference_trajectory
+
+# 원형 궤적 r=2.0 (v_ref = 1.0 m/s) + 경로 위 장애물 1개
+R_CIRCLE, W_CIRCLE, DT = 2.0, 0.5, 0.05
+obstacles = [(0.0, 2.0, 0.3)]  # 원 궤적 90° 지점 위
+
+def circle_ref(t):
+    th = W_CIRCLE * t
+    return np.array([
+        R_CIRCLE * np.cos(th), R_CIRCLE * np.sin(th), th + np.pi / 2,
+        R_CIRCLE * W_CIRCLE, W_CIRCLE,          # 속도 확장 레퍼런스 [v, ω]
+    ])
+
+model = DifferentialDriveDynamic()               # 상태 5D, 제어 [a, α] → rd=2
+params = MPPIParams(
+    K=512, N=20, dt=DT, lambda_=1.0,
+    sigma=np.array([1.0, 1.0]),
+    Q=np.array([10.0, 10.0, 1.0, 1.0, 0.5]),
+    R=np.array([0.1, 0.1]),
+)
+cost = CompositeMPPICost([
+    StateTrackingCost(params.Q),
+    TerminalCost(params.Qf),
+    ControlEffortCost(params.R),
+    HOCBFCost(                                    # ← 핵심: rd=2 지수형 캐스케이드
+        obstacles, lambda1=2.0, lambda2=2.0, weight=1000.0,
+        safety_margin=0.1, dt=DT, relative_degree=2,
+    ),
+])
+controller = MPPIController(model, params, cost)
+
+state = np.array([R_CIRCLE, 0.0, np.pi / 2, 0.0, 0.0])
+min_clear = np.inf
+for step in range(200):                           # 10초 폐루프
+    ref = generate_reference_trajectory(circle_ref, step * DT, params.N, DT)
+    control, info = controller.compute_control(state, ref)
+    state = model.step(state, control, DT)
+    d = np.hypot(state[0] - obstacles[0][0], state[1] - obstacles[0][1])
+    min_clear = min(min_clear, d - obstacles[0][2])
+
+print(f"min clearance = {min_clear:.3f} m (>0 이면 충돌 없음)")
+print(f"ESS = {info['ess']:.1f} / {params.K}")
+```
+
+실행 결과:
+```
+min clearance = 0.294 m (>0 이면 충돌 없음)
+ESS = 174.7 / 512
+```
+
+`relative_degree=1`로 바꾸면 기존 ControlBarrierCost와 동등한 1차
+조건으로 축약됩니다 (벤치마크에서 rd=2 시나리오 클리어런스
+0.282 m vs 1차 CBF 0.039 m).
+
+### 12.3 HOCBF 해석적 사후 필터 (HOCBFFilter)
+
+MPPI 출력을 closed-form 최소 노름 보정으로 필터링합니다.
+`relative_degree=None`이면 12.1의 검출 함수로 자동 판별합니다.
+
+```python
+import numpy as np
+from mppi_controller.models.dynamic.differential_drive_dynamic import (
+    DifferentialDriveDynamic,
+)
+from mppi_controller.controllers.mppi import HOCBFFilter
+
+model = DifferentialDriveDynamic()
+obstacles = [(1.0, 0.0, 0.3)]
+
+# relative_degree=None → detect_relative_degree 로 자동 검출 (동역학 → 2)
+filt = HOCBFFilter(model, obstacles, lambda1=2.0, lambda2=2.0,
+                   safety_margin=0.1, relative_degree=None)
+print("자동 검출 rd =", filt.relative_degree)     # → 2
+
+# 장애물을 향해 v=1.5 m/s 로 돌진하는 상태에서 가속 명령을 필터링
+state = np.array([0.3, 0.0, 0.0, 1.5, 0.0])      # 장애물까지 0.7 m
+u_nominal = np.array([2.0, 0.0])                  # 최대 가속 (위험!)
+u_safe, info = filt.filter_control(state, u_nominal)
+
+print(f"u_nominal = {u_nominal}")
+print(f"u_safe    = {np.round(u_safe, 3)}")       # 감속 방향으로 보정됨
+print(f"filtered={info['filtered']}, "
+      f"correction_norm={info['correction_norm']:.3f}, "
+      f"min_constraint={info['min_constraint']:.3f}")
+print("누적 통계:", filt.get_filter_statistics())
+```
+
+실행 결과:
+```
+자동 검출 rd = 2
+u_nominal = [2. 0.]
+u_safe    = [-1.693  0.   ]
+filtered=True, correction_norm=3.693, min_constraint=-5.170
+```
+
+가속 +2.0 명령이 감속 -1.693으로 뒤집혔습니다. 단, 벤치마크에서
+확인됐듯 사후 필터는 계획 전체를 재형성하지 못하므로 (노이즈 하
+충돌 3.0±4.2 스텝) **HOCBFCost(계획 비용)와 함께** 최후 방어선으로
+쓰는 것을 권장합니다.
+
+### 12.4 Stochastic CBF + Risk-Aware CBF (프로세스 노이즈)
+
+두 비용의 핵심 차이:
+- **StochasticCBFCost**: Itô 보정 — 볼록 barrier에서는 조건이
+  오히려 **완화**됨 (양수 항 추가). 보수성은 β 버퍼 담당.
+- **RiskAwareCBFCost**: 시간 증가 마진 √(2t)·η·erfinv(1-2ρ)로
+  P(min_t h < 0) ≤ ρ 보장 — 노이즈 안전의 실전 선택.
+
+```python
+import numpy as np
+from mppi_controller.models.kinematic.differential_drive_kinematic import (
+    DifferentialDriveKinematic,
+)
+from mppi_controller.controllers.mppi.base_mppi import MPPIController
+from mppi_controller.controllers.mppi.mppi_params import MPPIParams
+from mppi_controller.controllers.mppi.cost_functions import (
+    CompositeMPPICost,
+    StateTrackingCost,
+    TerminalCost,
+    ControlEffortCost,
+)
+from mppi_controller.controllers.mppi import StochasticCBFCost, RiskAwareCBFCost
+from mppi_controller.utils.trajectory import generate_reference_trajectory
+
+R_CIRCLE, W_CIRCLE, DT = 2.0, 0.5, 0.05
+obstacles = [(0.0, 2.0, 0.3)]
+
+def circle_ref(t):
+    th = W_CIRCLE * t
+    return np.array([R_CIRCLE * np.cos(th), R_CIRCLE * np.sin(th), th + np.pi / 2])
+
+# 이산 per-step 노이즈 std → 연속시간 확산 σ (std_step = σ·√dt)
+noise_std = np.array([0.05, 0.05, 0.02])
+sigma_process = noise_std / np.sqrt(DT)
+
+# ── 두 가지 확률적 CBF 비용 ──────────────────────────────────
+sto_cost = StochasticCBFCost(                 # Itô 보정 (완화!) + β 버퍼
+    obstacles, alpha=6.0, beta=0.5,
+    sigma_process=sigma_process, weight=50.0, safety_margin=0.1, dt=DT,
+)
+print(f"Itô 보정항 Σσ_pos² = {sto_cost.get_ito_correction():.3f}  (양수 → 조건 완화)")
+
+risk_cost = RiskAwareCBFCost(                 # P(min_t h < 0) ≤ ρ 마진
+    obstacles, rho=0.1,
+    sigma_process=sigma_process, weight=1000.0, safety_margin=0.1, dt=DT,
+)
+t_grid = np.array([0.25, 0.5, 1.0])           # 호라이즌 내 시간 (초)
+print("margin(t) =", np.round(risk_cost.get_margin(t_grid), 3), "@ ρ=0.1")
+
+# ── RiskAware 비용으로 노이즈 하 폐루프 실행 ─────────────────
+model = DifferentialDriveKinematic(v_max=1.5, omega_max=2.0)
+params = MPPIParams(K=512, N=20, dt=DT, lambda_=1.0,
+                    sigma=np.array([0.5, 0.5]),
+                    Q=np.array([10.0, 10.0, 1.0]), R=np.array([0.1, 0.1]))
+cost = CompositeMPPICost([
+    StateTrackingCost(params.Q), TerminalCost(params.Qf),
+    ControlEffortCost(params.R), risk_cost,
+])
+controller = MPPIController(model, params, cost)
+
+rng = np.random.default_rng(42)
+state = np.array([R_CIRCLE, 0.0, np.pi / 2])
+min_clear = np.inf
+for step in range(200):
+    ref = generate_reference_trajectory(circle_ref, step * DT, params.N, DT)
+    control, info = controller.compute_control(state, ref)
+    state = model.step(state, control, DT)
+    state = state + rng.normal(size=3) * noise_std      # 프로세스 노이즈 주입
+    d = np.hypot(state[0] - obstacles[0][0], state[1] - obstacles[0][1])
+    min_clear = min(min_clear, d - obstacles[0][2])
+
+print(f"노이즈 하 min clearance = {min_clear:.3f} m")
+```
+
+실행 결과:
+```
+Itô 보정항 Σσ_pos² = 0.100  (양수 → 조건 완화)
+margin(t) = [0.162 0.229 0.324] @ ρ=0.1
+노이즈 하 min clearance = 0.243 m
+```
+
+마진이 √t로 증가하는 것(0.162 → 0.324)과, 같은 노이즈에서
+벤치마크의 일반 CBF 비용이 3/3 시드 충돌한 반면 RiskAware(ρ=0.1)는
+충돌 0을 유지한 점에 주목하세요.
+
+### 12.5 Robust CBF (유계 외란 worst-case 마진)
+
+‖w‖ ≤ w_max 외란에 대해 CBF 조건을 dt·‖∇h·M‖·w_max 만큼 강화합니다.
+
+```python
+import numpy as np
+from mppi_controller.controllers.mppi import RobustCBFCost
+
+obstacles = [(0.0, 2.0, 0.3)]
+
+# w_max = 1.0 m/s: 이산 노이즈 1σ(0.05 m)를 dt=0.05 s 로 나눈 등가 속도 외란
+robust_cost = RobustCBFCost(
+    obstacles, w_max=1.0, alpha=0.3, weight=1000.0,
+    safety_margin=0.1, dt=0.05, norm="two",   # "sup": ‖w‖∞ 유계 외란
+)
+
+# 장애물 주위를 지나는 가짜 궤적 (K=2, N=10)으로 마진 확인
+traj = np.zeros((2, 11, 3))
+traj[0, :, 0] = np.linspace(-1.0, 1.0, 11)    # 샘플 0: 장애물에서 1 m 떨어져 통과
+traj[0, :, 1] = 1.0
+traj[1, :, 0] = np.linspace(-1.0, 1.0, 11)    # 샘플 1: 장애물 중심 관통 (위험)
+traj[1, :, 1] = 2.0
+
+margins = robust_cost.get_robust_margin(traj)  # (num_obs, K, N)
+costs = robust_cost.compute_cost(traj, None, None)
+print("마진 항 dt·‖∇h·M‖·w_max 평균:", np.round(margins.mean(axis=(0, 2)), 4))
+print("Robust CBF 비용:", np.round(costs, 1), "→ 관통 샘플이 강하게 페널티")
+
+# w_max=0 → vanilla ControlBarrierCost 와 정확히 동일 (축약 성질)
+vanilla_equiv = RobustCBFCost(obstacles, w_max=0.0, alpha=0.3, weight=1000.0,
+                              safety_margin=0.1, dt=0.05)
+print("w_max=0 비용:", np.round(vanilla_equiv.compute_cost(traj, None, None), 1))
+```
+
+실행 결과:
+```
+마진 항 dt·‖∇h·M‖·w_max 평균: [0.115 0.05 ]
+Robust CBF 비용: [  0. 888.] → 관통 샘플이 강하게 페널티
+w_max=0 비용: [  0. 588.]
+```
+
+같은 관통 궤적에 대해 w_max=1.0이 vanilla(588)보다 큰 비용(888)을
+부과합니다 — 외란 마진만큼 조건이 강화된 결과입니다.
+벤치마크(노이즈, 3 시드)에서 Robust CBF는 충돌 0 + RMSE 0.705로
+"충돌 없는 방법 중 최고 추적"이었습니다.
+
+### 12.6 CLF-CBF-QP 컨트롤러 (샘플링 없는 베이스라인)
+
+MPPI 없이 QP만으로 수렴(CLF, soft) + 안전(CBF, hard)을 푸는
+독립 컨트롤러입니다. repo 표준 `compute_control` 인터페이스를 따르므로
+기존 시뮬레이션 루프에 그대로 꽂을 수 있습니다.
+
+```python
+import numpy as np
+from mppi_controller.models.kinematic.differential_drive_kinematic import (
+    DifferentialDriveKinematic,
+)
+from mppi_controller.controllers.mppi import (
+    CLFCBFQPParams,
+    CLFCBFQPController,
+    CBFOnlyQPController,
+)
+from mppi_controller.utils.trajectory import generate_reference_trajectory
+
+R_CIRCLE, W_CIRCLE, DT = 2.0, 0.5, 0.05
+obstacles = [(0.0, 2.0, 0.3)]
+
+def circle_ref(t):
+    th = W_CIRCLE * t
+    return np.array([R_CIRCLE * np.cos(th), R_CIRCLE * np.sin(th), th + np.pi / 2])
+
+model = DifferentialDriveKinematic(v_max=1.5, omega_max=2.0)
+qp_params = CLFCBFQPParams(dt=DT, safety_margin=0.15)
+
+# CLF-CBF-QP (수렴 soft + 안전 hard) vs CBF-QP (pure-pursuit 명목 + hard CBF)
+for Ctrl in (CLFCBFQPController, CBFOnlyQPController):
+    controller = Ctrl(model, qp_params, obstacles)
+    state = np.array([R_CIRCLE, 0.0, np.pi / 2])
+    min_clear, solve_ms, feas = np.inf, [], []
+    for step in range(400):                        # 20초 폐루프
+        ref = generate_reference_trajectory(circle_ref, step * DT, 20, DT)
+        control, info = controller.compute_control(state, ref)
+        solve_ms.append(info["solve_time"] * 1000)
+        feas.append(info["qp_feasible"])
+        state = model.step(state, control, DT)
+        d = np.hypot(state[0] - obstacles[0][0], state[1] - obstacles[0][1])
+        min_clear = min(min_clear, d - obstacles[0][2])
+    print(f"{Ctrl.__name__:22s} min_clear={min_clear:.3f} m, "
+          f"solve={np.mean(solve_ms):.2f} ms, feasible={100*np.mean(feas):.1f}%")
+```
+
+실행 결과:
+```
+CLFCBFQPController     min_clear=0.338 m, solve=0.10 ms, feasible=100.0%
+CBFOnlyQPController    min_clear=0.312 m, solve=0.08 ms, feasible=100.0%
+```
+
+**~0.1 ms** — MPPI(1.8~3.0 ms)의 약 1/20 계산으로 항상 충돌 없음.
+단 동역학 5D에서는 backstepping-lite CLF의 근사 때문에 추적이
+열화됩니다 (벤치마크 RMSE 1.93~2.41 vs MPPI 0.69~0.85).
+
+### 12.7 벤치마크 실행 (10-Way × 4 시나리오)
+
+```bash
+# A. 기구학 + 정적 장애물 (기준선)
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --scenario static_kin
+
+# B. 동역학 5D 가속도 제어 (rd=2 — HOCBF 홈그라운드)
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --scenario dynamic_rd2
+
+# C. 강한 프로세스 노이즈 (3 시드 mean±std)
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --scenario stochastic
+
+# D. Risk 예산 스윕 (ρ ∈ {0.5, 0.2, 0.1, 0.05, 0.01})
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --scenario risk_sweep
+
+# 전체 실행 / 빠른 확인
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --scenario static_kin --duration 5 --no-plot
+```
+
+결과: `plots/cbfkit_inspired_benchmark_{시나리오}.png`,
+`results/cbfkit_inspired/{시나리오}.json`
+
+**결과 해석 포인트**:
+
+| 시나리오 | 봐야 할 것 |
+|---------|-----------|
+| static_kin | CBF-MPPI의 MinClear **-0.030 m** (3 충돌 스텝!) vs HOCBF-MPPI 0.223 m + 최고 RMSE 0.436 — soft 페널티는 무노이즈에서도 스칠 수 있음 |
+| dynamic_rd2 | 1차 CBF 계열 0.039~0.199 m vs HOCBF(rd=2) **0.282 m** — 상대 차수 불일치의 대가 |
+| stochastic | CBF-MPPI 3/3 시드 충돌, StochasticCBF도 1.7 충돌 스텝 (Itô 완화 실증) vs RiskAware/Robust **충돌 0** |
+| risk_sweep | MinClear가 ρ에 단조: -0.068 → 0.588 m (ρ 0.5 → 0.01) — ρ는 해석 가능한 안전 다이얼 |
+| 공통 | QP 컨트롤러 solve ~0.1 ms (MPPI 1.8~3.0 ms), 항상 충돌 0, 5D에서만 추적 열화 |
+
+### 12.8 직접 해보기
+
+1. **ρ 스윕 재현**: 12.4의 폐루프에서 `rho`를 {0.5, 0.2, 0.1, 0.05,
+   0.01}로 바꿔가며 min clearance를 기록하고, 단조 증가를
+   확인하세요. ρ=0.5에서 margin이 정확히 0이 되는 이유를
+   `risk_cost.get_margin(1.0)`으로 검증해 보세요 (erfinv(0)=0).
+
+2. **λ1/λ2 보수성 관찰**: 12.2에서 `lambda1=lambda2`를
+   {0.5, 1.0, 2.0, 4.0}으로 바꾸면서 min clearance와 위치 RMSE를
+   기록하세요. λ가 작을수록 보수적(클리어런스↑, RMSE↑)임을
+   확인하고, λ·dt > 1로 만들면 어떤 일이 생기는지 관찰하세요.
+
+3. **HOCBF vs 1차 CBF (자기 장애물 배치)**: 12.2의 장애물을
+   2~3개로 늘리고 (예: 210°, 330° 지점 추가) `relative_degree`를
+   1과 2로 바꿔 클리어런스를 비교하세요. 동역학 모델에서 rd=1이
+   왜 뒤늦게 반응하는지 궤적 플롯으로 확인해 보세요.
+
+4. **Itô 완화 실증**: 12.4의 폐루프에서 `risk_cost` 대신
+   `sto_cost`(beta=0.5)를 넣고 같은 시드로 실행해 min clearance를
+   비교하세요. 이어서 `beta`를 0 → 1.0 → 2.0으로 올리면
+   RiskAware와의 격차가 어떻게 줄어드는지 관찰하세요.
+
+5. **QP vs MPPI 하이브리드**: 12.6의 `CBFOnlyQPController` 대신,
+   12.2의 MPPI 출력에 12.3의 `HOCBFFilter`를 씌운 2단 구조
+   (계획 = HOCBFCost, 필터 = HOCBFFilter)를 만들어 단독 대비
+   클리어런스/개입율(`get_filter_statistics()`)을 비교하세요.
 
 ---
 

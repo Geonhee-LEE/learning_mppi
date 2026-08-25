@@ -1,0 +1,118 @@
+{
+  "scenario": "risk_sweep",
+  "name": "D. Risk Budget Sweep (RiskAwareCBF)",
+  "config": {
+    "K": 512,
+    "N": 20,
+    "dt": 0.05,
+    "duration": 20.0,
+    "seeds": [
+      42,
+      43,
+      44
+    ],
+    "obstacles": [
+      [
+        1.2246467991473532e-16,
+        2.0,
+        0.3
+      ],
+      [
+        -1.7320508075688772,
+        -1.0000000000000002,
+        0.3
+      ],
+      [
+        1.7320508075688767,
+        -1.0000000000000009,
+        0.3
+      ]
+    ],
+    "process_noise_std": [
+      0.05,
+      0.05,
+      0.02
+    ],
+    "rho_values": [
+      0.5,
+      0.2,
+      0.1,
+      0.05,
+      0.01
+    ]
+  },
+  "sweep": {
+    "0.5": {
+      "position_rmse": 0.5991030523505353,
+      "position_rmse_std": 0.1347902240840397,
+      "min_clearance": -0.06769326492362258,
+      "min_clearance_std": 0.08940013369631881,
+      "collisions": 3.6666666666666665,
+      "collisions_std": 4.4969125210773475,
+      "mean_solve_time_ms": 1.8782209744676948,
+      "mean_solve_time_ms_std": 0.016566636878262198
+    },
+    "0.2": {
+      "position_rmse": 1.5689003406348692,
+      "position_rmse_std": 0.27136372795874875,
+      "min_clearance": 0.11508053221193092,
+      "min_clearance_std": 0.023048684386915638,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 1.8651861076553662,
+      "mean_solve_time_ms_std": 0.008501754379323856
+    },
+    "0.1": {
+      "position_rmse": 1.996608869235206,
+      "position_rmse_std": 0.0915795367780143,
+      "min_clearance": 0.24296376581975765,
+      "min_clearance_std": 0.016283062424437045,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 1.8584488161529105,
+      "mean_solve_time_ms_std": 0.00800057603324119
+    },
+    "0.05": {
+      "position_rmse": 1.6207821988571214,
+      "position_rmse_std": 0.13733978701994154,
+      "min_clearance": 0.39461772936599565,
+      "min_clearance_std": 0.024113137693072127,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 1.8584221197913091,
+      "mean_solve_time_ms_std": 0.0047899754648891655
+    },
+    "0.01": {
+      "position_rmse": 1.745647397193215,
+      "position_rmse_std": 0.3098411755509945,
+      "min_clearance": 0.5877146348872587,
+      "min_clearance_std": 0.02756269757346635,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 1.858496490555505,
+      "mean_solve_time_ms_std": 0.014081770930830845
+    }
+  },
+  "references": {
+    "Vanilla": {
+      "position_rmse": 0.7269860064468326,
+      "position_rmse_std": 0.19153062504140356,
+      "min_clearance": 0.06809839977452296,
+      "min_clearance_std": 0.01964238168065604,
+      "collisions": 0.0,
+      "collisions_std": 0.0,
+      "mean_solve_time_ms": 1.8188467994332314,
+      "mean_solve_time_ms_std": 0.002307718593801246
+    },
+    "StochasticCBF-MPPI": {
+      "position_rmse": 0.4392332867275986,
+      "position_rmse_std": 0.029894660081226508,
+      "min_clearance": -0.018553687385547375,
+      "min_clearance_std": 0.05921890112602827,
+      "collisions": 1.6666666666666667,
+      "collisions_std": 1.699673171197595,
+      "mean_solve_time_ms": 1.8279118820404012,
+      "mean_solve_time_ms_std": 0.0012494240567327386
+    }
+  }
+}

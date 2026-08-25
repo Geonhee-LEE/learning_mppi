@@ -9,7 +9,7 @@
 ## 프로젝트 개요
 
 MPPI (Model Predictive Path Integral) 기반 모바일 로봇 제어 시스템
-- 43종 MPPI 변형, 22종 안전 제어, 14종 학습 모델
+- 43종 MPPI 변형, 27종 안전 제어 (cbfkit-inspired 5종 포함), 14종 학습 모델
 - 2030+ tests / 102+ files / ~78,000+ lines
 
 ## 인터페이스 규칙
@@ -145,6 +145,10 @@ PYTHONPATH=. python examples/comparison/rf_mppi_benchmark.py --live --scenario f
 PYTHONPATH=. python examples/comparison/step_mppi_benchmark.py --all-scenarios
 PYTHONPATH=. python examples/comparison/step_mppi_benchmark.py --live --scenario online_learning
 
+# cbfkit-inspired 안전 기법 벤치마크 (HOCBF/StochasticCBF/RiskAwareCBF/RobustCBF/CLF-CBF-QP)
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --all-scenarios
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --scenario dynamic_rd2
+PYTHONPATH=. python examples/comparison/cbfkit_inspired_benchmark.py --scenario risk_sweep
 # 변형 × 모델 크로스 벤치마크 (41 variants × 6 robot models)
 PYTHONPATH=. python examples/comparison/variants_x_models_benchmark.py --scenario all
 PYTHONPATH=. python examples/comparison/variants_x_models_benchmark.py --smoke

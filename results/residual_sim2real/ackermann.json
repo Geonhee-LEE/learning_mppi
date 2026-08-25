@@ -1,0 +1,41 @@
+{
+  "model": "ackermann",
+  "config": {
+    "episodes": 5,
+    "epochs": 30,
+    "duration": 12.0,
+    "seed": 42
+  },
+  "controllers": {
+    "Baseline": {
+      "position_rmse": 1.6234081299808476,
+      "heading_rmse": 1.0761218440390472,
+      "mean_solve_time_ms": 2.4588028589884443,
+      "max_position_error": 2.907912013107661
+    },
+    "Residual": {
+      "position_rmse": 0.7205206369184282,
+      "heading_rmse": 1.9404464971505324,
+      "mean_solve_time_ms": 12.624494234720865,
+      "max_position_error": 1.2845394705918776
+    },
+    "Oracle": {
+      "position_rmse": 1.441661934697545,
+      "heading_rmse": 1.3495579634408073,
+      "mean_solve_time_ms": 2.72272527217865,
+      "max_position_error": 2.7590246026332212
+    }
+  },
+  "residual_1step_rmse": 0.09464856384944748,
+  "residual_1step_per_dim_rmse": [
+    0.019024648979158863,
+    0.0167497931732789,
+    0.017086089794151042,
+    0.1868126742233249
+  ],
+  "baseline_position_rmse": 1.6234081299808476,
+  "residual_position_rmse": 0.7205206369184282,
+  "oracle_position_rmse": 1.441661934697545,
+  "improvement_percent": 55.616790158188465,
+  "residual_helps": true
+}

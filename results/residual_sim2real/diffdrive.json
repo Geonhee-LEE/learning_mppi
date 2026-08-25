@@ -1,0 +1,40 @@
+{
+  "model": "diffdrive",
+  "config": {
+    "episodes": 5,
+    "epochs": 30,
+    "duration": 12.0,
+    "seed": 42
+  },
+  "controllers": {
+    "Baseline": {
+      "position_rmse": 0.6226051558879809,
+      "heading_rmse": 1.6256177708412876,
+      "mean_solve_time_ms": 2.0849525928497314,
+      "max_position_error": 0.9902754664931122
+    },
+    "Residual": {
+      "position_rmse": 0.5232255201968363,
+      "heading_rmse": 1.7489614046396935,
+      "mean_solve_time_ms": 12.293736139933268,
+      "max_position_error": 0.9157756838127699
+    },
+    "Oracle": {
+      "position_rmse": 0.5376908739151912,
+      "heading_rmse": 1.7179224823153971,
+      "mean_solve_time_ms": 2.362118164698283,
+      "max_position_error": 0.9416703553361382
+    }
+  },
+  "residual_1step_rmse": 0.013675837347037393,
+  "residual_1step_per_dim_rmse": [
+    0.015222305133055721,
+    0.01695703902270986,
+    0.006467289652266159
+  ],
+  "baseline_position_rmse": 0.6226051558879809,
+  "residual_position_rmse": 0.5232255201968363,
+  "oracle_position_rmse": 0.5376908739151912,
+  "improvement_percent": 15.961903744501752,
+  "residual_helps": true
+}

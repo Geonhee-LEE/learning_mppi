@@ -1,0 +1,40 @@
+{
+  "model": "swerve",
+  "config": {
+    "episodes": 5,
+    "epochs": 30,
+    "duration": 12.0,
+    "seed": 42
+  },
+  "controllers": {
+    "Baseline": {
+      "position_rmse": 0.10069239017893156,
+      "heading_rmse": 1.604363561863036,
+      "mean_solve_time_ms": 2.4825056393941245,
+      "max_position_error": 0.22397820585375516
+    },
+    "Residual": {
+      "position_rmse": 0.06773459691001336,
+      "heading_rmse": 1.6282607890445835,
+      "mean_solve_time_ms": 12.48034139474233,
+      "max_position_error": 0.16798261611455306
+    },
+    "Oracle": {
+      "position_rmse": 0.06249941090700695,
+      "heading_rmse": 1.5839861499423917,
+      "mean_solve_time_ms": 2.7174909909566245,
+      "max_position_error": 0.13949962830454962
+    }
+  },
+  "residual_1step_rmse": 0.025943112284307457,
+  "residual_1step_per_dim_rmse": [
+    0.030130190025400315,
+    0.03240665741164853,
+    0.007817635795166339
+  ],
+  "baseline_position_rmse": 0.10069239017893156,
+  "residual_position_rmse": 0.06773459691001336,
+  "oracle_position_rmse": 0.06249941090700695,
+  "improvement_percent": 32.731165890840224,
+  "residual_helps": true
+}

@@ -20,6 +20,22 @@ from mppi_controller.controllers.mppi.mppi_params import (
 )
 from mppi_controller.controllers.mppi.neural_cbf_cost import NeuralBarrierCost
 from mppi_controller.controllers.mppi.neural_cbf_filter import NeuralCBFSafetyFilter
+from mppi_controller.controllers.mppi.hocbf_cost import (
+    HOCBFCost,
+    HOCBFFilter,
+    detect_relative_degree,
+)
+from mppi_controller.controllers.mppi.stochastic_cbf import (
+    StochasticCBFCost,
+    RiskAwareCBFCost,
+)
+from mppi_controller.controllers.mppi.robust_cbf_margin import RobustCBFCost
+from mppi_controller.controllers.mppi.clf_cbf_qp import (
+    CBFCLFQPSolver,
+    CLFCBFQPParams,
+    CLFCBFQPController,
+    CBFOnlyQPController,
+)
 from mppi_controller.controllers.mppi.wbc_mppi import WBCMPPIController, WBCNoiseSampler
 from mppi_controller.controllers.mppi.diffusion_mppi import DiffusionMPPIController
 from mppi_controller.controllers.mppi.kernel_mppi import KernelMPPIController, RBFKernel
@@ -144,6 +160,16 @@ from mppi_controller.controllers.mppi.mppi_params import (
 )
 
 __all__ = [
+    "HOCBFCost",
+    "HOCBFFilter",
+    "detect_relative_degree",
+    "StochasticCBFCost",
+    "RiskAwareCBFCost",
+    "RobustCBFCost",
+    "CBFCLFQPSolver",
+    "CLFCBFQPParams",
+    "CLFCBFQPController",
+    "CBFOnlyQPController",
     "ConformalCBFMPPIController",
     "ConformalCBFMPPIParams",
     "UncertaintyMPPIController",
