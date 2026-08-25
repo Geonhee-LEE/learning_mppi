@@ -294,11 +294,12 @@
   * ASCII 메트릭 비교 테이블
   * 6패널 비교 플롯 생성
 
-- [ ] #207 모델 타입별 벤치마크 도구 (Phase 3 후속 작업)
-  * examples/comparison/model_type_benchmark.py
-  * Kinematic, Dynamic, Learned 동시 비교
-  * --trajectory {circle,figure8,sine} 선택
-  * ASCII 요약 테이블 + 차트
+- [x] #207 모델 타입별 벤치마크 도구 ✓ 2026-07-11
+  * examples/comparison/variants_x_models_benchmark.py
+  * 41 MPPI variants × 6 robot models (DiffDrive/Ackermann/Swerve × Kin/Dyn) 크로스 벤치마크
+  * simple / obstacles 시나리오, 492/492 셀 성공
+  * ASCII 요약 테이블 + 히트맵/요약 플롯
+  * 리포트: docs/VARIANTS_X_MODELS_REPORT.md
 
 ---
 
